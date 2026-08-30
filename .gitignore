@@ -2,3 +2,6 @@
 _check*.js
 _g.html
 *.ps1
+
+# 项目元数据（非源码）
+.workbuddy/
