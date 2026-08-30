@@ -1,0 +1,2569 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>粒子海洋 · Particle Ocean</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  #app { position: fixed; inset: 0; display: block; cursor: grab; }
+  #app.grabbing { cursor: grabbing; }
+  #loading {
+    position: fixed; inset: 0; z-index: 20; display: flex;
+    align-items: center; justify-content: center;
+    color: #aab4e8; font-family: system-ui, sans-serif; letter-spacing: 3px;
+    background: #000; transition: opacity 0.8s ease;
+  }
+  .tools { position: fixed; top: 20px; right: 20px; z-index: 15; display: flex; gap: 10px; align-items: flex-start; font-family: system-ui, "PingFang SC", sans-serif; }
+  .tool-btn {
+    background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85);
+    border: 1px solid rgba(255,255,255,0.22); padding: 8px; border-radius: 9px;
+    cursor: pointer; backdrop-filter: blur(4px); user-select: none;
+    display: flex; align-items: center; justify-content: center; width: 36px; height: 36px;
+  }
+  .tool-btn svg { display: block; }
+  .tool-btn.active { background: rgba(127,216,255,0.18); border-color: rgba(127,216,255,0.55); color: #cdefff; }
+  /* 第一人称准心 */
+  #reticle {
+    position: fixed; left: 50%; top: 50%; width: 20px; height: 20px;
+    transform: translate(-50%, -50%); z-index: 12; display: none; pointer-events: none;
+  }
+  #reticle::before, #reticle::after { content: ''; position: absolute; background: rgba(255,255,255,0.85); box-shadow: 0 0 3px rgba(0,0,0,0.6); }
+  #reticle::before { left: 50%; top: 0; width: 1.5px; height: 100%; transform: translateX(-50%); }
+  #reticle::after { top: 50%; left: 0; height: 1.5px; width: 100%; transform: translateY(-50%); }
+  #collectTag {
+    position: fixed; top: 18px; left: 18px; z-index: 12;
+    color: #ffe9a8; font-family: system-ui, "PingFang SC", sans-serif; font-size: 17px; letter-spacing: 1px;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+  }
+  #collectTag .ball {
+    display: inline-block; width: 15px; height: 15px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 28%, #ffffff, #c3cfe4 62%, #7f8da6 100%);
+    vertical-align: -2px; box-shadow: 0 0 7px rgba(255,255,255,0.45);
+  }
+  #collectTag.pop .ball { animation: ballPop .4s ease; }
+  @keyframes ballPop {
+    0% { transform: scale(1); }
+    35% { transform: scale(1.6); }
+    100% { transform: scale(1); }
+  }
+  #settingsPanel {
+    position: fixed; top: 58px; right: 14px; z-index: 15;
+    width: 254px; padding: 14px 18px;
+    max-height: 74vh; overflow-y: auto;
+    background: rgba(8,12,26,0.9); border: 1px solid rgba(127,216,255,0.3);
+    border-radius: 12px; font-size: 13px; font-family: system-ui, "PingFang SC", sans-serif;
+    color: #dfe8ff;
+  }
+  #settingsPanel label { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 4px; }
+  #settingsPanel label.chk { justify-content: flex-start; gap: 8px; }
+  #eventTag {
+    position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 13;
+    color: #ffd9d0; font-family: system-ui, "PingFang SC", sans-serif; font-size: 15px; letter-spacing: 3px;
+    background: rgba(60,14,10,0.55); padding: 7px 18px; border-radius: 9px;
+    border: 1px solid rgba(255,140,110,0.45); display: none; pointer-events: none; white-space: nowrap;
+  }
+  .panel-row { display: flex; gap: 8px; margin-top: 15px; }
+  .panel-btn {
+    flex: 1; padding: 7px 0; font-size: 12px; cursor: pointer; font-family: inherit;
+    color: #dfe6ff; background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.22); border-radius: 8px;
+  }
+  .panel-btn:hover { background: rgba(127,216,255,0.18); border-color: rgba(127,216,255,0.5); }
+  .panel-btn.danger { color: #ffd9d0; border-color: rgba(255,140,110,0.45); }
+  .panel-btn.danger:hover { background: rgba(255,120,90,0.22); border-color: rgba(255,150,120,0.7); }
+  .tool-btn.off { opacity: 0.4; }
+  .tool-btn.off .wave1, .tool-btn.off .wave2 { display: none; }
+  .tool-btn.off .slash { display: block !important; }
+</style>
+</head>
+<body>
+  <canvas id="app"></canvas>
+  <div class="tools">
+    <div class="view-btn tool-btn" id="viewBtn" title="视角：环绕（点击切换第一人称飞行）">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path>
+        <circle cx="12" cy="12" r="3"></circle>
+      </svg>
+    </div>
+    <div class="tool-btn" id="fullBtn" title="全屏">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"></path>
+      </svg>
+    </div>
+    <div class="tool-btn" id="settingsBtn" title="设置">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </div>
+  </div>
+  <div id="reticle"></div>
+  <div id="eventTag"></div>
+  <div id="collectTag"><span class="ball"></span> × 0</div>
+  <div id="loading">LOADING…</div>
+  <div id="settingsPanel" style="display:none">
+    <label class="chk"><input type="checkbox" id="sndChk" checked> 音效</label>
+    <div class="panel-row">
+      <button id="btnBig" class="panel-btn">召唤巨浪</button>
+      <button id="btnTsu" class="panel-btn danger">召唤海啸</button>
+    </div>
+    <div class="panel-row">
+      <button id="btnTor" class="panel-btn danger">召唤龙卷风</button>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    try {
+      const canvas = document.getElementById('app');
+      const ctx = canvas.getContext('2d');
+      let W = 0, H = 0, cx = 0, cy = 0, dpr = 1, bgGrad = null;
+
+      function resize() {
+        dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+        W = window.innerWidth; H = window.innerHeight;
+        canvas.width = W * dpr; canvas.height = H * dpr;
+        canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cx = W / 2; cy = H / 2;
+        bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+        bgGrad.addColorStop(0.0, '#000000');
+        bgGrad.addColorStop(0.45, '#000000');
+        bgGrad.addColorStop(0.75, '#000000');
+        bgGrad.addColorStop(1.0, '#000000');
+      }
+      window.addEventListener('resize', resize);
+      resize();
+
+      // ---------- 常量与状态 ----------
+      let AMP = 4.2;
+      let OCEAN = 200;          // 渲染范围（海面边长）
+      let GRID = 130;           // 粒子密度（每边粒子数）
+      let COUNT = GRID * GRID;
+      let baseX = new Float32Array(COUNT);
+      let baseZ = new Float32Array(COUNT);
+      let baseFog = new Float32Array(COUNT);   // 每粒子雾化系数（FPV 远处变暗，orbit 下恒为 1）
+      let projX = new Float32Array(COUNT);
+      let projY = new Float32Array(COUNT);
+      let projS = new Float32Array(COUNT);
+      let projV = new Uint8Array(COUNT);
+      let projA = new Float32Array(COUNT);   // 每粒子最终 alpha（含 FPV 近处浪墙屏障增强）
+      const bucketCols = [];
+      const bucketA = [];
+      for (let b = 0; b < 24; b++) {
+        const t = b / 23;
+        const a = 0.22 + t * 0.55;
+        bucketCols.push('rgba(255,255,255,' + a.toFixed(3) + ')');
+        bucketA.push(a);
+      }
+
+      let G = 26, SPRING_K = 22, SPRING_C = 3.2, WATER_C = 3.5; const RIPPLE_SPEED = 16;
+      const FREEFALL_GAP = 5;   // 物体高于水面超过此距离才受自由落体重力；贴近水面用阻尼弹簧轻轻回位，避免“硬落地”反弹溅水
+      let rippleScale = 1;
+      const splashes = [];
+      const ripples = [];
+      let curT = 0, lastFrame = performance.now();
+      let curCosY = 1, curSinY = 0, curCosP = 1, curSinP = 0;
+      let curCosR = 1, curSinR = 0;   // 视角横滚（游泳时随波浪左右摇晃）
+
+      // ---------- 随机海况：大浪与海啸 ----------
+      // 一道沿 (dx,dz) 推进的浪涌，前陡后缓。高度直接叠加进 waveHeightBase，
+      // 所以渲染、波面遮挡、物体浮力、游泳体感会同时感受到它。
+      const surges = [];
+      const tornados = [];                          // 龙卷风：稀有事件
+      let nextBigT = 22 + Math.random() * 30;      // 下一次大浪
+      let nextRareT = 90 + Math.random() * 130;     // 下一次稀有事件（海啸 / 超大海啸 / 龙卷风）
+      const pushTmp = { x: 0, z: 0 };
+
+      // 海况：普通大浪（随机刷新）/ 巨浪（手动召唤）/ 海啸（灾难级）/ 超大海啸（海啸 3 倍）
+      // 浪高直接叠加进波函数，所以浪本身就是一堵会推进的水墙，会把人和物体一起推走。
+      const SURGE_KIND = {
+        big:     { amp: AMP * 1.15 + 3.5, width: 16, speed: 28, dist: 320, msg: '大浪来袭' },
+        huge:    { amp: AMP * 2.6 + 11,   width: 26, speed: 44, dist: 420, msg: '巨 浪 来 袭' },
+        tsunami: { amp: AMP * 4.6 + 22,   width: 44, speed: 62, dist: 580, msg: '海 啸 来 袭' },
+        mega:    { amp: (AMP * 4.6 + 22) * 3, width: 96, speed: 84, dist: 860, msg: '超 大 海 啸 来 袭' }
+      };
+      function spawnSurge(kind) {
+        const cfg = SURGE_KIND[kind] || SURGE_KIND.big;
+        const ang = Math.random() * 6.2832;
+        const dx = Math.cos(ang), dz = Math.sin(ang);
+        surges.push({
+          kind, dx, dz,
+          p0: (camX * dx + camZ * dz) - cfg.dist,   // 从玩家身后沿传播方向打来
+          t0: curT,
+          speed: cfg.speed,
+          amp: cfg.amp,
+          width: cfg.width
+        });
+        showEvent(cfg.msg);
+      }
+
+      function surgeHeight(x, z, t) {
+        let h = 0;
+        for (let i = 0; i < surges.length; i++) {
+          const sg = surges[i];
+          const u = (x * sg.dx + z * sg.dz - (sg.p0 + sg.speed * (t - sg.t0))) / sg.width;
+          if (u < -2.4 || u > 2.4) continue;
+          h += sg.amp * Math.exp(-u * u * (u > 0 ? 1.8 : 0.5));   // 迎面陡、背面缓
+        }
+        return h;
+      }
+
+      // 浪涌对水中物体的水平推力（海啸会把漂浮物整个推走）
+      function surgePush(px, pz) {
+        pushTmp.x = 0; pushTmp.z = 0;
+        for (let i = 0; i < surges.length; i++) {
+          const sg = surges[i];
+          const u = (px * sg.dx + pz * sg.dz - (sg.p0 + sg.speed * (curT - sg.t0))) / sg.width;
+          if (u < -2.2 || u > 2.2) continue;
+          const push = sg.amp * (sg.kind === 'mega' ? 5.0 : sg.kind === 'tsunami' ? 3.6 : sg.kind === 'huge' ? 2.2 : 1.1) * Math.exp(-u * u);
+          pushTmp.x += sg.dx * push; pushTmp.z += sg.dz * push;
+        }
+        return pushTmp;
+      }
+
+      function updateSurges(dt) {
+        if (curT > nextBigT) { spawnSurge('big'); nextBigT = curT + 32 + Math.random() * 46; }
+        // 稀有事件：海啸 / 超大海啸 / 龙卷风。同一时间只出现一种（场上还有稀有事件就顺延）
+        const rareActive = surges.some(sg => sg.kind === 'tsunami' || sg.kind === 'mega')
+          || tornados.length > 0;
+        if (curT > nextRareT && !rareActive) {
+          const r = Math.random();
+          if (r < 0.30) spawnSurge('mega');       // 超大海啸：约 30% 概率
+          else if (r < 0.58) spawnSurge('tsunami');
+          else spawnTornado();                    // 龙卷风
+          nextRareT = curT + 80 + Math.random() * 140;
+        }
+        for (let i = surges.length - 1; i >= 0; i--) {
+          const sg = surges[i];
+          const front = sg.p0 + sg.speed * (curT - sg.t0);
+          if (front - (camX * sg.dx + camZ * sg.dz) > sg.width * 3 + 260) surges.splice(i, 1);
+        }
+        updateTornados(dt);
+      }
+
+      // ---------- 龙卷风：巨型旋转风柱，把附近的人和物体卷上天 ----------
+      // 生成后固定在世界坐标不再移动；大小远超大楼；出场由小到大，带旋转粒子与海面水雾。
+      // 风柱里还卷着一批「从海里被吸出来」的方块碎片：绕中轴高速旋转、螺旋上升，到顶被甩出去。
+      // 玩家被卷起时不做高度限制，而是越转越高、旋转半径越来越大，到约大楼三倍高被甩飞出去。
+      const TORNADO_EJECT_H = 500;
+      function resetDebris(d, td) {
+        d.ang = Math.random() * 6.2832;
+        d.h = -8 - Math.random() * 16;             // 从水面以下开始 → 视觉上就是「被从海里吸出来」
+        d.rad = td.r * (0.85 + Math.random() * 0.5);
+        d.spin = 2.8 + Math.random() * 2.6;        // 绕中轴角速度（快速旋转）
+        d.rise = 10 + Math.random() * 14;          // 上升速度
+        d.size = 1.4 + Math.random() * 2.4;
+        d.rx = Math.random() * 6.28; d.ry = Math.random() * 6.28;
+        d.sx = (Math.random() - 0.5) * 6; d.sy = (Math.random() - 0.5) * 6;
+        return d;
+      }
+      function debrisToFloater(td, d, vx, vy, vz) {
+        floaters.push({
+          type: 'box', sc: Math.max(0.55, d.size * 0.45),
+          x: td.x + Math.cos(d.ang) * d.rad, z: td.z + Math.sin(d.ang) * d.rad,
+          y: waveHeight(td.x, td.z, curT) + d.h,
+          vx, vy, vz,
+          rx: d.rx, ry: d.ry,
+          sx: (Math.random() - 0.5) * 0.8, sy: (Math.random() - 0.5) * 0.8,
+          state: 'free', wasSub: false, hover: false, flash: 0
+        });
+      }
+      // 卷到顶端 → 沿切线甩出去，落回海里（只有一部分变成真实漂浮物，避免刷屏）
+      function ejectDebris(td, d) {
+        if (Math.random() > 0.4) return;
+        const tanX = -Math.sin(d.ang), tanZ = Math.cos(d.ang);
+        const sp = 16 + Math.random() * 12;
+        debrisToFloater(td, d, tanX * sp + Math.cos(d.ang) * 9, 6 + Math.random() * 6,
+          tanZ * sp + Math.sin(d.ang) * 9);
+      }
+      // 龙卷风消散：被卷上天的一起掉回海里
+      function dropDebris(td) {
+        for (const d of td.debris) {
+          if (d.h < 0) continue;
+          debrisToFloater(td, d, Math.cos(d.ang) * 10, -2, Math.sin(d.ang) * 10);
+        }
+        td.debris.length = 0;
+      }
+      function spawnTornado() {
+        const ang = Math.random() * 6.2832;
+        // 生成距离要略大于风柱半径，免得玩家一出现就被堵在风眼里
+        const dist = 130 + Math.random() * 80;     // 在玩家周围固定位置出现
+        const td = {
+          x: camX + Math.cos(ang) * dist,
+          z: camZ + Math.sin(ang) * dist,
+          t0: curT, life: 45,
+          height: 760,                             // 比大楼（110~220）高得多
+          r: 116,                                  // 风柱半径（吸附半径，比原来大一倍）
+          debris: []
+        };
+        for (let i = 0; i < 22; i++) td.debris.push(resetDebris({}, td));
+        tornados.push(td);
+        showEvent('龙 卷 风 来 袭');
+      }
+      function updateTornados(dt) {
+        for (let i = tornados.length - 1; i >= 0; i--) {
+          const td = tornados[i];
+          const age = curT - td.t0;
+          if (age > td.life) { dropDebris(td); tornados.splice(i, 1); continue; }
+          const grow = Math.min(1, age / 2.5);     // 出场过渡：由小到大
+          const R = td.r * grow;
+          // 风柱里的方块碎片：绕中轴高速旋转 + 螺旋上升；出水后沿漏斗收拢，越往上张得越开
+          const Hd = td.height * grow;
+          for (const d of td.debris) {
+            const t = Math.max(0, Math.min(1, d.h / Hd));
+            if (d.h >= 0) {
+              const targetR = R * (0.16 + 0.84 * t) + 2;
+              d.rad += (targetR - d.rad) * Math.min(1, dt * 1.6);
+            }
+            d.ang += d.spin * (1 + (1 - t) * 0.8) * dt;      // 越靠底部转得越快
+            d.h += d.rise * (0.5 + t * 0.9) * dt;
+            d.rx += d.sx * dt; d.ry += d.sy * dt;
+            if (d.h > Hd) { ejectDebris(td, d); resetDebris(d, td); }
+          }
+          // 卷起附近的漂浮物：向心 + 强切向（明显绕圈）+ 上升，越近卷得越猛
+          for (const f of floaters) {
+            if (f.type === 'ruin' || f.type === 'boat') continue;
+            const dx = f.x - td.x, dz = f.z - td.z;   // 由风柱中心指向物体
+            const d = Math.hypot(dx, dz);
+            if (d < R && d > 0.01) {
+              const k = 1 - d / R;                 // 越靠近风柱中心越强
+              const inward = k * 70;               // 向心：被吸进风柱
+              const swirl = Math.min(k * 95, d * 2.6);   // 切向：绕着龙卷风打转（靠近风眼不失控）
+              f.x += (-dx / d * inward - dz / d * swirl) * dt;
+              f.z += (-dz / d * inward + dx / d * swirl) * dt;
+              // 杂物也有高度上限，卷到风柱上部就停在那儿盘旋，不会飞出天际
+              const objTop = waveHeight(td.x, td.z, curT) + td.height * 0.7;
+              if (f.y < objTop) {
+                f.y += k * 100 * dt;
+                f.vy = Math.max(f.vy, 16);         // 一直被往上抛
+              }
+            }
+          }
+          // 玩家：被慢慢吸向风柱，同时绕着它旋转上升；视角叠加旋转但玩家可以自由转头
+          if (camMode === 'fpv') {
+            const dx = camX - td.x, dz = camZ - td.z;
+            const d = Math.hypot(dx, dz);
+            if (d < R && d > 0.01) {
+              const k = 1 - d / R;
+              const swim = camState === 'swim';
+              // 越被卷得越高，向心力越弱并逐渐转为离心 → 旋转半径越来越大
+              const lift = camY - (waveHeight(td.x, td.z, curT) + SWIM_EYE_H);
+              const tH = Math.min(1, Math.max(0, lift / TORNADO_EJECT_H));
+              // 旋转半径随高度张开：低空贴着风眼转，越卷越高被甩得越外圈
+              const targetR = R * (swim ? 0.12 + 0.7 * tH : 0.15 + 0.35 * tH);
+              const radial = (targetR - d) * 1.3;               // 正=往外推，负=往里吸
+              // 越被卷得越高转得越快：切向速度随高度显著递增
+              const swirl = Math.min((swim ? 74 : 38) * (0.35 + 0.65 * k) * (1 + 2.2 * tH), d * 3.4);
+              camX += (dx / d * radial - dz / d * swirl) * dt;
+              camZ += (dz / d * radial + dx / d * swirl) * dt;
+              // 视角只是叠加旋转，不锁死：玩家仍可用鼠标自由看四周
+              const swirlYaw = k * (swim ? 0.8 : 0.45) * dt;
+              yawT += swirlYaw; yaw += swirlYaw;
+              if (swim) {
+                standY = -1e9;                     // 被卷起时脱离楼顶支撑
+                if (lift < TORNADO_EJECT_H) {
+                  td.ejected = false;              // 掉回高度以下 → 可以再被卷上去一次
+                  camY += (0.45 + 0.55 * k) * 52 * dt;   // 不限高，越卷越高
+                  swimVy = Math.max(swimVy, 5);
+                } else if (!td.ejected) {
+                  // 卷到约大楼三倍高 → 沿切线 + 向外甩飞出去，之后自由落体。
+                  // 甩出速度与风柱里杂物被卷动的速度一致（向心 70 / 切向 95），所以能飞很远
+                  td.ejected = true;
+                  swimVX = (dx / d) * 70 + (-dz / d) * 95;
+                  swimVZ = (dz / d) * 70 + (dx / d) * 95;
+                  swimVy = 8;
+                }
+                swimOff = camY - (waveHeight(camX, camZ, curT) + SWIM_EYE_H);
+                camVy = swimVy;
+              }
+            }
+          }
+        }
+      }
+
+      // ---------- 波函数（叠加飞溅涟漪） ----------
+      // 基波（4 条正弦叠加，无涟漪）+ 浪涌：用于波面高度计算与遮挡采样
+      function waveHeightBase(x, z, t) {
+        return Math.sin(x * 0.08 + t * 0.9) * AMP * 0.55
+             + Math.sin(z * 0.12 + t * 0.7) * AMP * 0.45
+             + Math.sin((x + z) * 0.06 + t * 1.15) * AMP * 0.35
+             + Math.sin((x - z) * 0.10 - t * 0.6) * AMP * 0.25
+             + surgeHeight(x, z, t);
+      }
+      function waveHeight(x, z, t) {
+        let h = waveHeightBase(x, z, t);
+        for (let i = 0; i < ripples.length; i++) {
+          const rp = ripples[i];
+          const age = t - rp.t0;
+          if (age < 0) continue;
+          const dx = x - rp.x, dz = z - rp.z;
+          const r = Math.sqrt(dx * dx + dz * dz);
+          const front = RIPPLE_SPEED * age;
+          const d = front - r;
+          if (d >= 0) {
+            const env = Math.exp(-age * 0.7) * Math.exp(-d * 0.05) * Math.sin(d * 0.5);
+            h += rp.strength * env;
+          }
+        }
+        return h;
+      }
+      // 波面竖直速度（waveHeight 对 t 的解析导数，不含涟漪），用于判断物体是否“相对水面”高速穿越
+      function waveVel(x, z, t) {
+        return 0.9 * AMP * 0.55 * Math.cos(x * 0.08 + t * 0.9)
+             + 0.7 * AMP * 0.45 * Math.cos(z * 0.12 + t * 0.7)
+             + 1.15 * AMP * 0.35 * Math.cos((x + z) * 0.06 + t * 1.15)
+             - 0.6 * AMP * 0.25 * Math.cos((x - z) * 0.10 - t * 0.6);
+      }
+      // 波面坡度（dh/dx, dh/dz，不含涟漪），用于游泳视角随波左右摇晃
+      function waveSlope(x, z, t) {
+        const dx = Math.cos(x * 0.08 + t * 0.9) * 0.08 * AMP * 0.55
+                 + Math.cos((x + z) * 0.06 + t * 1.15) * 0.06 * AMP * 0.35
+                 + Math.cos((x - z) * 0.10 - t * 0.6) * 0.10 * AMP * 0.25;
+        const dz = Math.cos(z * 0.12 + t * 0.7) * 0.12 * AMP * 0.45
+                 + Math.cos((x + z) * 0.06 + t * 1.15) * 0.06 * AMP * 0.35
+                 - Math.cos((x - z) * 0.10 - t * 0.6) * 0.10 * AMP * 0.25;
+        return { x: dx, z: dz };
+      }
+
+      // ---------- 波面不透明遮挡：连续波面 + 深度分层 + 黑色遮罩 ----------
+      // 遮挡体是「连续波面」而不是离散粒子，所以没有缝隙。做法：
+      // 把画面按「屏幕列 × 深度层」离散化，逐层记录波面投影高度与「更近波面」形成的遮挡边界；
+      // 渲染时从远到近逐层：先用纯黑覆盖被更近波面挡住的区域，再画本层粒子与物体。
+      // 于是粒子和物体都被波面逐段截断——哪里被挡住就遮住哪里，随波起伏是渐变出现而非整块弹出。
+      let occCamX = 0, occCamY = 0, occCamZ = 0;   // 当前帧相机世界坐标（轨道/第一人称通用）
+      const OCC_LAYERS = 40;                  // 深度层数（按到相机的距离指数分层）
+      const OCC_COL_W = 8;                    // 遮挡采样列宽（像素）
+      const OCC_T0 = 2, OCC_TR = 1.16;        // 最近层距离与层间倍率（近密远疏，采样更密以贴合浪形）
+      const OCC_LOG_TR = Math.log(OCC_TR);
+      const layerDist = new Float32Array(OCC_LAYERS);
+      for (let k = 0; k < OCC_LAYERS; k++) layerDist[k] = OCC_T0 * Math.pow(OCC_TR, k);
+      let occCols = 0;
+      let occStrength = 0;                          // 遮挡强度：贴近水面且视线接近水平时才需要遮挡
+      let occNear = new Float32Array(OCC_LAYERS);   // [k][c] 更近波面形成的地平线（屏幕 y）：低于它即被浪挡住
+      let occY = new Float32Array(OCC_LAYERS);      // [k][c] 本层波面自身的投影 y
+      let colDirX = new Float32Array(1), colDirZ = new Float32Array(1);
+      const layerLists = [], objLayerLists = [];
+      for (let k = 0; k < OCC_LAYERS; k++) { layerLists.push([]); objLayerLists.push([]); }
+
+      // 距离 → 深度层索引
+      function occLayerOf(dx, dz) {
+        let bi = Math.log(Math.sqrt(dx * dx + dz * dz) / OCC_T0) / OCC_LOG_TR;
+        if (!(bi >= 0)) bi = 0;                 // 距离过小 / NaN
+        if (bi > OCC_LAYERS - 1) bi = OCC_LAYERS - 1;
+        return bi | 0;
+      }
+
+      // 只取屏幕 y 的轻量投影：避免每步产生临时对象（遮罩每帧调用上万次）
+      // 注意：不能叫 projY —— 那是粒子投影缓冲区的名字，会冲突
+      function projScreenY(x, y, z) {
+        const tx = x - camX, ty = y - camY, tz = z - camZ;
+        const x1 = tx * curCosY + tz * curSinY;
+        const z1 = -tx * curSinY + tz * curCosY;
+        const y2 = ty * curCosP - z1 * curSinP;
+        const z2 = ty * curSinP + z1 * curCosP;
+        const off = (camMode === 'fpv') ? 0 : camDist;
+        const denom = off - z2;
+        if (denom <= 1) return NaN;
+        const yr = x1 * curSinR + y2 * curCosR;   // 含视角横滚
+        return cy - yr * (fov / denom);
+      }
+
+      // 每帧计算遮挡表：每列的水平视线方向 + 各层波面投影 y，再由近到远累积出遮挡边界
+      function computeOcclusion() {
+        const need = Math.max(1, Math.ceil(W / OCC_COL_W));
+        if (occCols !== need) {
+          occCols = need;
+          occNear = new Float32Array(need * OCC_LAYERS);
+          occY = new Float32Array(need * OCC_LAYERS);
+          colDirX = new Float32Array(need);
+          colDirZ = new Float32Array(need);
+        }
+        const off = (camMode === 'fpv') ? 0 : camDist;
+        // 遮挡强度：这种「按屏幕列累积地平线」的做法等价于体素海面渲染，只在视线接近
+        // 水平、眼睛贴近水面时才成立。俯视或高空时用它会在画面上挖出成片的黑洞，
+        // 所以按「眼睛离水面的高度」和「俯仰角」把地平线平滑压到屏幕底部（= 不遮挡）。
+        const eyeAbove = camY - waveHeight(camX, camZ, curT);
+        // 潜到水面以下时这套遮挡模型不成立（水面在你头顶，不会挡住你看海底），
+        // 必须淡出遮挡，否则整个视野会被波面黑幕盖住、潜下去一片全黑。
+        let s = (eyeAbove >= 0)
+          ? 1 - (eyeAbove - 4) / 20                            // 水上：4 以内全遮挡，24 以上不遮挡
+          : 1 + eyeAbove / 1.5;                                // 入水后 1.5 单位内快速淡出
+        if (s < 0) s = 0; else if (s > 1) s = 1;
+        const ap = pitch < 0 ? -pitch : pitch;
+        let pf = 1 - (ap - 0.5) / 0.7;                         // 0.5rad 内全遮挡，1.2rad 以上不遮挡
+        if (pf < 0) pf = 0; else if (pf > 1) pf = 1;
+        occStrength = s * pf;
+
+        // 每列的水平视线方向（屏幕 x + 两个深度反投影，orbit / FPV 通用）
+        for (let c = 0; c < need; c++) {
+          const sx = c * OCC_COL_W + OCC_COL_W * 0.5;
+          const p1 = unproject(sx, cy, off - 500);
+          const p2 = unproject(sx, cy, off - 1500);
+          let vx = p2.x - p1.x, vz = p2.z - p1.z;
+          const vl = Math.hypot(vx, vz);
+          if (vl < 1e-6) { colDirX[c] = 0; colDirZ[c] = 0; continue; }
+          colDirX[c] = vx / vl; colDirZ[c] = vz / vl;
+        }
+        for (let c = 0; c < need; c++) {
+          const vx = colDirX[c], vz = colDirZ[c];
+          let m = H;
+          for (let k = 0; k < OCC_LAYERS; k++) {
+            const idx = k * need + c;
+            let y = H;
+            if (vx !== 0 || vz !== 0) {
+              const d = layerDist[k];
+              const px = occCamX + vx * d, pz = occCamZ + vz * d;
+              const py = projScreenY(px, waveHeightBase(px, pz, curT), pz);
+              if (isFinite(py)) y = py;
+            }
+            occY[idx] = y;
+            occNear[idx] = m;          // 本层遮挡边界 = 更近层（0..k-1）波面的最高点
+            if (y < m) m = y;          // 波面更高（屏幕更靠上）→ 抬升遮挡边界
+          }
+        }
+      }
+
+      // 实际使用的地平线：occStrength 越小越往下压，直到完全不裁剪
+      function occHorizon(idx) {
+        const y0 = occNear[idx];
+        return y0 + (1 - occStrength) * (H - y0);
+      }
+
+      // 用「波面地平线」裁剪：地平线以下（被更近的浪挡住的部分）直接不绘制。
+      // 注意裁剪区横跨整个屏幕宽度——若只覆盖物体估算的包围盒，物体的边角会被切掉。
+      function clipToHorizon(row) {
+        const top = -200;
+        ctx.beginPath();
+        ctx.moveTo(0, top);
+        ctx.lineTo(W, top);
+        ctx.lineTo(W, occHorizon(row + occCols - 1));
+        for (let c = occCols - 1; c >= 0; c--) ctx.lineTo(c * OCC_COL_W, occHorizon(row + c));
+        ctx.lineTo(0, occHorizon(row));
+        ctx.closePath();
+        ctx.clip();
+      }
+
+      // ---------- 构建粒子 ----------
+      function buildParticles(grid, ocean) {
+        GRID = grid; OCEAN = ocean; COUNT = GRID * GRID;
+        baseX = new Float32Array(COUNT);
+        baseZ = new Float32Array(COUNT);
+        baseFog = new Float32Array(COUNT).fill(1);
+        projX = new Float32Array(COUNT);
+        projY = new Float32Array(COUNT);
+        projS = new Float32Array(COUNT);
+        projV = new Uint8Array(COUNT);
+        projA = new Float32Array(COUNT);
+        const half = OCEAN / 2, step = OCEAN / (GRID - 1);
+        let p = 0;
+        for (let i = 0; i < GRID; i++) {
+          for (let j = 0; j < GRID; j++) {
+            baseX[p] = -half + i * step;
+            baseZ[p] = -half + j * step;
+            p++;
+          }
+        }
+      }
+      buildParticles(GRID, OCEAN);
+
+      // ---------- 第一人称的“无限画布”：统一粒子场，无分层，仅按距离线性淡出 ----------
+      // 全场景同一种间距（不分层、无密度跳变）；离相机越远越淡，亮度衰减到 0 的点直接不渲染
+      const FPV_RADIUS = 300;           // 统一渲染半径（超出该范围不生成粒子）
+      const FPV_FADE_START = 0.15;      // 从该比例半径处开始淡出（更早开始）
+      const FPV_FADE_POW = 1.9;         // 淡出曲线指数（>1 → 远处亮度衰减更快）
+      const FPV_STEP_MUL = 2.2;         // 统一间距 = 基准间距 × 该倍率
+      const FPV_REBUILD_DIST = 6;       // 相机移动超过该距离才重建粒子场（边缘已淡到 0，重建无感）
+      function buildFPVParticles(cx0, cz0) {
+        const baseStep = OCEAN / (GRID - 1);
+        const step = Math.max(baseStep * FPV_STEP_MUL, 1.6);
+        const startX = Math.floor((cx0 - FPV_RADIUS) / step) * step;
+        const startZ = Math.floor((cz0 - FPV_RADIUS) / step) * step;
+        const fade0 = FPV_RADIUS * FPV_FADE_START;
+        const fadeW = FPV_RADIUS - fade0;
+        const xs = [], zs = [], fg = [];
+        for (let x = startX; x <= cx0 + FPV_RADIUS; x += step) {
+          for (let z = startZ; z <= cz0 + FPV_RADIUS; z += step) {
+            const d = Math.hypot(x - cx0, z - cz0);
+            if (d > FPV_RADIUS) continue;
+            let f = 1;
+            if (d > fade0) f = Math.pow(Math.max(0, 1 - (d - fade0) / fadeW), FPV_FADE_POW);   // 快速淡出到 0
+            xs.push(x); zs.push(z); fg.push(f);
+          }
+        }
+        COUNT = xs.length;
+        baseX = Float32Array.from(xs);
+        baseZ = Float32Array.from(zs);
+        baseFog = Float32Array.from(fg);
+        projX = new Float32Array(COUNT);
+        projY = new Float32Array(COUNT);
+        projS = new Float32Array(COUNT);
+        projV = new Uint8Array(COUNT);
+        projA = new Float32Array(COUNT);
+      }
+
+      // ---------- 漂浮几何体 ----------
+      const palette = [[255,255,255]];
+      // 球体不再是普通漂浮物，而是需要收集的战利品（低概率出现、点击收集）
+      const types = ['box', 'cuboid', 'tetra', 'star', 'pyramid', 'octa', 'diamond'];
+      let floaters = [];
+      let objTarget = 22;              // 目标物体数量（跟随调试滑块）
+      function buildFloaters(num) {
+        objTarget = num;
+        floaters = [];
+        for (let k = 0; k < num; k++) {
+          const type = types[(Math.random() * types.length) | 0];
+          const sc = 0.7 + Math.random() * 0.8;
+          const x = (Math.random() - 0.5) * OCEAN * 0.82;
+          const z = (Math.random() - 0.5) * OCEAN * 0.82;
+          floaters.push({
+            type, sc, x, z,
+            y: -(6 + Math.random() * 9), vx: 0, vy: 0, vz: 0,   // 从水底浮出，更自然
+            rx: Math.random() * 6.28, ry: Math.random() * 6.28,
+            rx: Math.random() * 6.28, ry: Math.random() * 6.28,
+            sx: (Math.random() - 0.5) * 0.5, sy: (Math.random() - 0.5) * 0.4,
+            state: 'free', wasSub: false, hover: false, flash: 0
+          });
+        }
+      }
+      buildFloaters(22);
+
+      // 第一人称物体流式渲染：跟随相机半径生成，超出半径删除（释放内存）
+      // 遗迹与漂浮物一样流式：跟随相机随机生成、超出「遗迹半径」即释放内存（遗迹更大，半径也更远）
+      function streamFloaters(cx0, cz0) {
+        for (let i = floaters.length - 1; i >= 0; i--) {
+          const f = floaters[i];
+          if (f === dragging) continue;                       // 正在拖拽的物体不删
+          if (f === boat && driving) continue;                // 正在驾驶的木筏不删
+          const lim = f.type === 'ruin' ? RUIN_R : FPV_OBJ_R;
+          if (Math.hypot(f.x - cx0, f.z - cz0) > lim) floaters.splice(i, 1);
+        }
+        let guard = 0;
+        while (floaters.filter(f => !f.collectible).length < objTarget && guard++ < 24) { // 补足普通物体
+          const ang = Math.random() * 6.2832;
+          // 近处略密、远处渐疏：全按面积均匀的话击飞射程内几乎没东西可打
+          const r = 14 + Math.pow(Math.random(), 1.4) * (FPV_OBJ_R - 14);
+          const x = cx0 + Math.cos(ang) * r;
+          const z = cz0 + Math.sin(ang) * r;
+          let ok = true;
+          for (const f of floaters) {
+            if (Math.hypot(f.x - x, f.z - z) < collideR(f) + 2.0) { ok = false; break; }
+          }
+          if (!ok) continue;
+          const type = types[(Math.random() * types.length) | 0];
+          const sc = 0.7 + Math.random() * 0.8;
+          floaters.push({
+            type, sc, x, z,
+            y: -(6 + Math.random() * 9), vx: 0, vy: 0, vz: 0,   // 从水底浮出，更自然
+            rx: Math.random() * 6.28, ry: Math.random() * 6.28,
+            sx: (Math.random() - 0.5) * 0.5, sy: (Math.random() - 0.5) * 0.4,
+            state: 'free', wasSub: false, hover: false, flash: 0
+          });
+        }
+        ensureRuins(cx0, cz0);   // 遗迹补足到目标数量（随机位置）
+        ensureCollectibles(cx0, cz0);   // 战利品球体补足（少量、低概率出现）
+      }
+
+      // ---------- 洋流：整片海在缓慢流动，物体与玩家都会被带着走 ----------
+      const CURRENT = 2.6;                 // 洋流强度（单位/秒）
+      const OBJ_CURRENT = 0.9;             // 洋流对漂浮物的作用系数
+      const OBJ_DRIFT = 3.0;               // 漂浮物顺坡下溜的强度
+      const cur = { x: 0, z: 0 };
+      function currentAt(x, z, t) {
+        cur.x = Math.sin(z * 0.013 + t * 0.05) * CURRENT + Math.sin((x + z) * 0.008 - t * 0.031) * CURRENT * 0.6;
+        cur.z = Math.cos(x * 0.011 - t * 0.042) * CURRENT + Math.cos((x - z) * 0.006 + t * 0.037) * CURRENT * 0.6;
+        return cur;
+      }
+
+      // ---------- 海上遗迹：巨大的立方 / 长条 / 四面体，大半沉在水下，随波浪若隐若现 ----------
+      const RUIN_TARGET = 3, RUIN_R = 300;
+      const SEABED_Y = -1950;               // 海底：遗迹从这里一直长上来（向水下延伸极深）
+      const RUIN_MAX_TILT = 0.3;            // 遗迹最大倾角（超过这个坡度爬不上去，会滑下来）
+      const CLIMB_REACH = 35;               // 贴着墙能往上爬的最大高度（要够到摩天大楼顶）
+      const CLIMB_SPEED = 7;                // 攀爬速度（单位/秒）
+      const JUMP_V = 16;                    // 在屋顶上按空格跳跃的向上初速
+
+      // 遗迹的水平半尺寸（局部坐标，未旋转）
+      function ruinHalf(f) {
+        const s = f.sc;
+        if (f.ruinShape === 'cuboid') return [s * 1.9, s * 0.7];
+        if (f.ruinShape === 'tetra') return [s * 1.6, s * 1.4];
+        return [s * 0.95, s * 0.95];
+      }
+      // 顶面截面（局部 XZ 多边形）
+      function ruinSection(f) {
+        const [hx, hz] = ruinHalf(f);
+        if (f.ruinShape === 'tetra') return [[hx, 0], [-hx * 0.5, hz], [-hx * 0.5, -hz]];
+        return [[hx, hz], [hx, -hz], [-hx, -hz], [-hx, hz]];
+      }
+      // 世界偏移 → 遗迹局部坐标（rotVec 的 yaw 逆变换）
+      function ruinToLocal(f, dx, dz) {
+        const cy = Math.cos(f.ry), sy = Math.sin(f.ry);
+        return [dx * cy - dz * sy, dx * sy + dz * cy];
+      }
+      // 遗迹局部坐标 → 世界偏移
+      function ruinToWorld(f, lx, lz) {
+        const cy = Math.cos(f.ry), sy = Math.sin(f.ry);
+        return [lx * cy + lz * sy, -lx * sy + lz * cy];
+      }
+      // 顶面在局部坐标 (lx,lz) 处的世界高度：rotVec 的 pitch 只抬高/压低 z1 方向
+      function ruinTopAt(f, lx, lz) {
+        const cy = Math.cos(f.ry), sy = Math.sin(f.ry);
+        const z1 = -lx * sy + lz * cy;
+        return f.y - z1 * Math.sin(f.rx);
+      }
+      function countRuins() {
+        let n = 0;
+        for (const f of floaters) if (f.type === 'ruin') n++;
+        return n;
+      }
+      function spawnRuin(cx0, cz0) {
+        const shapes = ['box', 'cuboid', 'tetra'];
+        const sc = 6 + Math.random() * 8;
+        const ang = Math.random() * 6.2832;
+        const r = 60 + Math.random() * (RUIN_R - 60);
+        // 遗迹直入云霄：顶面高出水面 110~220 单位，从海底一路耸立到天上
+        const topY = 110 + Math.random() * 110;
+        floaters.push({
+          type: 'ruin',
+          ruinShape: shapes[(Math.random() * shapes.length) | 0],
+          sc, x: cx0 + Math.cos(ang) * r, z: cz0 + Math.sin(ang) * r,
+          y: topY, vx: 0, vy: 0, vz: 0,
+          born: curT,               // 出生时间：生成后透明度渐入，丝滑出现
+          // 微倾：倾角决定顶面坡度，够缓才爬得上去
+          rx: (Math.random() - 0.5) * 2 * RUIN_MAX_TILT * 1.4,
+          ry: Math.random() * 6.2832,
+          sx: 0, sy: 0,
+          state: 'free', wasSub: false, hover: false, flash: 0
+        });
+      }
+      // 遗迹与漂浮物一样流式生成：数量不足就随机补足（位置本身固定，不被浪吹动）
+      function ensureRuins(cx0, cz0) {
+        let guard = 0;
+        while (countRuins() < RUIN_TARGET && guard++ < 12) {
+          const before = floaters.length;
+          spawnRuin(cx0, cz0);
+          const f = floaters[floaters.length - 1];
+          let ok = true;
+          for (const o of floaters) {                 // 遗迹之间留出间距，避免叠在一起
+            if (o === f) continue;
+            if (Math.hypot(o.x - f.x, o.z - f.z) < collideR(o) + collideR(f) + 18) { ok = false; break; }
+          }
+          if (!ok && floaters.length === before + 1) floaters.pop();
+        }
+      }
+      ensureRuins(0, 0);   // 初始生成若干座遗迹
+
+      // ---------- 战利品：可收集的球体（少量存在，点击收集，左上角计数） ----------
+      const COLLECT_TARGET = 2;         // 场上同时存在的收集球数量（稀有）
+      let collectCount = 0;             // 已收集数量
+      const collectFx = [];             // 收集动画：上浮亮起 → 缩成小球飞向左上角
+      const COLLECT_UI_X = 27, COLLECT_UI_Y = 33;   // 左上角球图标的位置
+      function tryCollect(f) {
+        if (!f || !f.collectible) return false;
+        const c = project(f.x, f.y, f.z, curCosY, curSinY, curCosP, curSinP);
+        const r = c ? Math.max(2, 2.6 * f.sc * c.s) : 8;   // 球当前的屏幕半径
+        collectFx.push({ sx: c ? c.sx : cx, sy: c ? c.sy : cy, r, t0: curT });
+        Sfx.ping(1.2, 1560);                    // 清脆的收集音
+        floaters.splice(floaters.indexOf(f), 1);
+        return true;
+      }
+      function updateCollectUI() {
+        collectTag.innerHTML = '<span class="ball"></span> × ' + collectCount;
+        collectTag.classList.remove('pop');
+        void collectTag.offsetWidth;            // 重触发弹跳动画
+        collectTag.classList.add('pop');
+        if (collectCount % 3 === 0) spawnBoat();   // 每集满 3 个，召唤一艘木筏
+      }
+
+      // ---------- 木筏：收集满 3 个球后在玩家周围召唤，可上船驾驶 ----------
+      let driving = false;                  // 是否正在驾驶木筏
+      let boat = null;                      // 当前驾驶的船
+      function findNearbyBoat() {
+        let best = null, bestD = 15;
+        for (const f of floaters) {
+          if (f.type !== 'boat') continue;
+          const d = Math.hypot(f.x - camX, f.z - camZ);
+          if (d < bestD) { bestD = d; best = f; }
+        }
+        return best;
+      }
+      function spawnBoat() {
+        const ang = Math.random() * 6.2832;
+        const r = 12 + Math.random() * 22;
+        floaters.push({
+          type: 'boat', sc: 3.5,
+          x: camX + Math.cos(ang) * r, z: camZ + Math.sin(ang) * r,
+          y: 0, vx: 0, vz: 0,
+          yawBoat: ang, prevYawBoat: ang, ry: ang, rx: 0,
+          sx: 0, sy: 0, state: 'free', wasSub: false, hover: false, flash: 0
+        });
+      }
+      function boardBoat(b) {
+        boat = b;
+        driving = true;
+        camState = 'swim';
+        swimOff = 0; swimVy = 0; camVy = 0;
+        Sfx.init();
+        Sfx.setEngine(true);                 // 发动机轰鸣
+      }
+      function leaveBoat() {
+        Sfx.setEngine(false);
+        driving = false;
+        boat = null;
+        camState = 'swim';
+        swimOff = 0; swimVy = 0;
+        if (camY < waveHeight(camX, camZ, curT)) camY = waveHeight(camX, camZ, curT) + SWIM_EYE_H;
+      }
+      function ensureCollectibles(cx0, cz0) {
+        let n = 0;
+        for (const f of floaters) if (f.collectible) n++;
+        let guard = 0;
+        while (n < COLLECT_TARGET && guard++ < 10) {
+          const ang = Math.random() * 6.2832;
+          const r = 18 + Math.random() * 95;
+          const x = cx0 + Math.cos(ang) * r;
+          const z = cz0 + Math.sin(ang) * r;
+          let ok = true;
+          for (const f of floaters) {
+            if (Math.hypot(f.x - x, f.z - z) < collideR(f) + 3) { ok = false; break; }
+          }
+          if (!ok) continue;
+          floaters.push({
+            type: 'sphere', sc: 1.2, x, z,
+            y: -(4 + Math.random() * 6), vx: 0, vy: 0, vz: 0,   // 从水底浮出
+            rx: 0, ry: Math.random() * 6.28,
+            sx: 0, sy: 0,
+            state: 'free', wasSub: false, hover: false, flash: 0,
+            collectible: true
+          });
+          n++;
+        }
+      }
+      ensureCollectibles(0, 0);
+
+      function boxVerts(hx, hy, hz) {
+        return [
+          [-hx,-hy,-hz],[hx,-hy,-hz],[hx,hy,-hz],[-hx,hy,-hz],
+          [-hx,-hy,hz],[hx,-hy,hz],[hx,hy,hz],[-hx,hy,hz]
+        ];
+      }
+      const BOX_FACES = [[0,1,2,3],[4,5,6,7],[0,3,7,4],[1,2,6,5],[3,2,6,7],[0,1,5,4]];
+      const TETRA_VERTS = [[1,1,1],[-1,-1,1],[-1,1,-1],[1,-1,-1]];
+      const TETRA_FACES = [[0,1,2],[0,1,3],[0,2,3],[1,2,3]];
+
+      // 五角星柱：上下各 10 个点（外/内半径交替），加 10 个侧面
+      function starPrism(h, R, r) {
+        const verts = [], faces = [];
+        for (let s = 0; s < 2; s++) {
+          const y = s === 0 ? h : -h;
+          for (let i = 0; i < 10; i++) {
+            const a = -Math.PI / 2 + i * Math.PI / 5;
+            const rad = (i % 2 === 0) ? R : r;
+            verts.push([Math.cos(a) * rad, y, Math.sin(a) * rad]);
+          }
+        }
+        const top = [], bot = [];
+        for (let i = 9; i >= 0; i--) top.push(i);
+        for (let i = 0; i < 10; i++) bot.push(10 + i);
+        faces.push(bot, top);
+        for (let i = 0; i < 10; i++) {
+          const j = (i + 1) % 10;
+          faces.push([i, j, 10 + j, 10 + i]);
+        }
+        return { verts, faces };
+      }
+      const STAR = starPrism(1.0, 2.9, 1.3);
+      const STAR_VERTS = STAR.verts;
+      const STAR_FACES = STAR.faces;
+
+      // 四棱锥：1 个顶点 + 4 个底角
+      const PYRAMID_VERTS = [[0, 3.0, 0], [-2.4, -2.4, -2.4], [2.4, -2.4, -2.4], [2.4, -2.4, 2.4], [-2.4, -2.4, 2.4]];
+      const PYRAMID_FACES = [[0,1,2],[0,2,3],[0,3,4],[0,4,1],[4,3,2,1]];
+
+      // 正八面体 / 菱形（上下尖、中间一圈）
+      function bipyramid(h, r) {
+        return {
+          verts: [[0, h, 0], [0, -h, 0], [r, 0, 0], [-r, 0, 0], [0, 0, r], [0, 0, -r]],
+          faces: [[0,2,4],[0,4,3],[0,3,5],[0,5,2],[1,4,2],[1,3,4],[1,5,3],[1,2,5]]
+        };
+      }
+      const OCTA = bipyramid(2.9, 2.3);
+      const OCTA_VERTS = OCTA.verts, OCTA_FACES = OCTA.faces;
+      const DIAMOND = bipyramid(3.5, 1.5);
+      const DIAMOND_VERTS = DIAMOND.verts, DIAMOND_FACES = DIAMOND.faces;
+
+      function rotVec(v, ax, ay) {
+        let x = v[0], y = v[1], z = v[2];
+        const cy = Math.cos(ay), sy = Math.sin(ay);
+        let x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+        const cx2 = Math.cos(ax), sx2 = Math.sin(ax);
+        let y2 = y * cx2 - z1 * sx2, z2 = y * sx2 + z1 * cx2;
+        return [x1, y2, z2];
+      }
+
+      // 碰撞半径（包围球，旋转物体用球体近似最稳健）
+      function collideR(f) {
+        const s = f.sc;
+        if (f.type === 'boat') return 2.6 * s;   // 木筏更宽，碰撞半径相应增大
+        if (f.type === 'ruin') return 1.55 * s;
+        if (f.type === 'sphere') return 2.6 * s;
+        if (f.type === 'tetra') return 1.9 * s;
+        if (f.type === 'cuboid') return 2.3 * s;
+        if (f.type === 'star') return 2.7 * s;
+        if (f.type === 'pyramid') return 2.5 * s;
+        if (f.type === 'octa') return 2.3 * s;
+        if (f.type === 'diamond') return 2.4 * s;
+        return 2.4 * s;   // box
+      }
+
+      // ---------- 相机 ----------
+      let yaw = 0.6, pitch = 0.2, camDist = 60, fov = 640;
+      let yawT = yaw, pitchT = pitch;   // 轨道视角：目标角，配合阻尼插值让转动更平滑
+      let camMode = 'orbit';            // 'orbit' | 'fpv'
+      let camX = 0, camY = 0, camZ = 0; // FPV 相机世界坐标
+      let lastFpvX = 0, lastFpvZ = 0;   // 上次重建 LOD 粒子场时的相机位置
+      const FPV_SPEED = 28;             // 第一人称飞行速度
+      const FPV_SWIM_SPEED = 9;         // 游泳速度（比飞行慢很多）
+      const SWIM_EYE_H = 1.3;           // 游泳漂浮时眼睛在水面之上的高度
+      const SPRINT_MULT = 1.35;         // 生存模式疾跑倍速（更温和）
+      const FPV_OBJ_R = 260;            // 第一人称物体流式渲染半径（超出即删除释放内存；扩大后周围物体更丰富）
+
+      // 游泳物理：水平靠「目标速度 + 惯性 + 水阻」，竖直靠「浮力弹簧 + 潜水/上浮」
+      const SWIM_ACCEL = 3.4;           // 水平加速响应（越小 → 惯性越强、越“重”）
+      const SWIM_DRAG = 0.85;           // 水平水阻
+      const SLOPE_INFLUENCE = 2.6;      // 坡度对游速的影响：逆坡变慢、顺坡变快
+      const WAVE_DRIFT = 4.5;           // 顺坡水流的漂移强度
+      const BUOY_K = 15;                // 浮力弹簧刚度（把人拉回水面）
+      const BUOY_UNDER = 0.2;           // 水下浮力衰减（越小潜得越深——要能潜到海底）
+      const BUOY_C = 20;                // 竖直水阻（增大 → 下沉/上浮更慢更沉稳）
+      const DIVE_ACC = 240;             // 按住 Shift：下潜（稳态深度 = DIVE_ACC/(BUOY_K*BUOY_UNDER)，配合更大的潜水深度）
+      const PADDLE_BOOST = 18;          // 上浮到水面时扑腾的向上脉冲速度（要够冲过 AIR_OFF 才能跃起后落回）
+      const RISE_ACC = 240;             // 按住 空格：上浮（与下潜速度一致）
+      const MAX_DIVE = 90;              // 极限下潜兜底（实际由深海压力软性限制，潜水深度扩大三倍）
+      const SEABED_SOFT = 12;           // 距海底多少单位开始感受到「越深越难往下」的阻力
+      const SEABED_VISC = 30;           // 深海粘滞系数：越深、下潜越快，衰减越狠
+      const AIR_OFF = 2.2;              // 离水面超过这个高度就按重力自由落体处理
+      const FALL_G_MUL = 1.8;           // 空中下落的重力倍率（与「取消飞行」同一下落模型）
+      // 下落是「越来越快」的加速运动。终端速度只是极端高度的兜底：
+      // 从最高的大楼（220）掉到水面约 140、被龙卷风卷到最高处再落下约 190，
+      // 都仍低于上限，所以整段下落都在加速，不会中途变匀速。
+      const FALL_TERMINAL = 225;
+
+      let camState = 'fly';             // 'fly' 飞行 | 'swim' 游泳
+      let camVy = 0;                    // 竖直速度（下落 / 上浮 / 下潜共用）
+      let swimVX = 0, swimVZ = 0;       // 游泳的水平速度（带惯性）
+      let swimOff = 0, swimVy = 0;      // 竖直方向相对「水面+眼高」的偏移与速度
+      let paddleT = 0.5;                // 上浮扑腾的倒计时
+      let sinkT = 0;                    // 扑腾落回后「扎入水中」的剩余时间
+      let standY = -1e9;                // 竖直受遗迹支撑的 camY（站上=顶面+眼高；攀爬中=当前爬升高度）
+      let bubbleT = 0.4;                // 下一次气泡音的倒计时
+      let airbornePrev = false;
+      let underwater = false;           // 相机是否在水面以下
+      let submergeAmt = 0;              // 潜水深度 0~1（用于水下色调）
+      let wasSubmerged = false;         // 上一帧是否在水下（用于入水/出水水花）
+      let sprint = false;               // 双击 W 触发疾跑
+      let lastWTime = 0, lastFTime = 0;
+      let sens = 0.0013;                         // 视角灵敏度
+      let spaceDownAt = 0, lastSpaceTap = 0;   // 空格短按判定（区分「上浮」与「双击起飞」）
+      let spaceTapUsed = false;                // 双击的第二下松手后不再计为新的敲击
+      let jumpTap = false;                     // 空格短按跳跃：站在屋顶上时消费
+      let prevCamX = 0, prevCamZ = 0, camVelX = 0, camVelZ = 0;
+      let curRoll = 0;
+      let swimSplash = false;           // 进入游泳后待触发的入水水花
+      let camDrag = false, lastX = 0, lastY = 0;
+
+      function project(x, y, z, cosY, sinY, cosP, sinP) {
+        // 统一投影：orbit 模式相机绕原点旋转；FPV 模式相机位于 (camX,camY,camZ)
+        const tx = x - camX, ty = y - camY, tz = z - camZ;
+        const x1 = tx * cosY + tz * sinY;
+        const z1 = -tx * sinY + tz * cosY;
+        const y2 = ty * cosP - z1 * sinP;
+        const z2 = ty * sinP + z1 * cosP;
+        const off = (camMode === 'fpv') ? 0 : camDist;
+        const denom = off - z2;
+        // 近平面压到 0.1：遗迹很高、玩家又会被碰撞挡在 0.8 外，若近平面还是 1，
+        // 遗迹正面顶点的投影深度 < 1 会全部返回 null，导致「离近就消失」
+        if (denom <= 0.1) return null;
+        const s = fov / denom;
+        // 视角横滚（游泳时随波浪左右摇晃）：绕屏幕中心旋转投影
+        const xr = x1 * curCosR - y2 * curSinR;
+        const yr = x1 * curSinR + y2 * curCosR;
+        return { sx: cx + xr * s, sy: cy - yr * s, s: s, depth: z2 };
+      }
+      // 屏幕坐标 + 相机空间深度 z2 → 世界坐标（用于拖拽）
+      function unproject(sx, sy, z2) {
+        const off = (camMode === 'fpv') ? 0 : camDist;
+        const denom = off - z2;
+        const x1 = (sx - cx) * denom / fov;
+        const y2 = -(sy - cy) * denom / fov;
+        // 逆俯仰
+        const ty = y2 * curCosP + z2 * curSinP;
+        const z1 = -y2 * curSinP + z2 * curCosP;
+        // 逆偏航
+        const wx = x1 * curCosY - z1 * curSinY + camX;
+        const wz = x1 * curSinY + z1 * curCosY + camZ;
+        return { x: wx, y: ty + camY, z: wz };
+      }
+
+      // 世界空间裁剪：保留 y >= planeY（海面以上）
+      function clipPolyY(poly, planeY) {
+        const out = []; const n = poly.length;
+        for (let i = 0; i < n; i++) {
+          const A = poly[i], B = poly[(i + 1) % n];
+          const Ain = A.y >= planeY, Bin = B.y >= planeY;
+          if (Ain) out.push(A);
+          if (Ain !== Bin) {
+            const t = (planeY - A.y) / (B.y - A.y);
+            out.push({ x: A.x + t * (B.x - A.x), y: planeY, z: A.z + t * (B.z - A.z) });
+          }
+        }
+        return out;
+      }
+      // 水下视角：保留 y <= planeY（只看到浸在水里的那半截）
+      function clipPolyYBelow(poly, planeY) {
+        const out = []; const n = poly.length;
+        for (let i = 0; i < n; i++) {
+          const A = poly[i], B = poly[(i + 1) % n];
+          const Ain = A.y <= planeY, Bin = B.y <= planeY;
+          if (Ain) out.push(A);
+          if (Ain !== Bin) {
+            const t = (planeY - A.y) / (B.y - A.y);
+            out.push({ x: A.x + t * (B.x - A.x), y: planeY, z: A.z + t * (B.z - A.z) });
+          }
+        }
+        return out;
+      }
+
+      // ---------- 输入：相机 / 抓取 ----------
+      let mouseX = -1, mouseY = -1;
+      let dragging = null, dragDepth = 0;
+      let lastDragPos = null, lastDragTime = 0;
+      let hovered = null;
+
+      function updateMouse(e) { mouseX = e.clientX; mouseY = e.clientY; }
+      function estimateScreenR(f, c) {
+        const worldR = f.type === 'ruin' ? 2.6 * f.sc
+          : (f.type === 'sphere' ? 2.6 : 3.2) * f.sc;
+        return worldR * c.s;
+      }
+
+      canvas.addEventListener('contextmenu', e => e.preventDefault());
+      canvas.addEventListener('mousedown', e => {
+        if (camMode === 'fpv') {
+          // 第一人称：已锁定鼠标时右键 = 上船；左键 = 短按击飞 / 长按抓取；未锁定时点中物体可抓取
+          if (document.pointerLockElement === canvas) {
+            if (e.button === 2) {
+              const nb = findNearbyBoat();
+              if (nb) { boardBoat(nb); return; }
+            }
+            if (e.button === 0) fpvPressAt = performance.now();   // 记录按下，长按/短按由 mouseup 决定
+            return;
+          }
+          if (document.pointerLockElement !== canvas) {
+            updateMouse(e);
+            if (tryCollect(hovered)) return;         // 点中战利品球体：收集，不拖拽
+            if (hovered && hovered.state !== 'drag') {
+              const c = project(hovered.x, hovered.y, hovered.z, curCosY, curSinY, curCosP, curSinP);
+              dragDepth = c ? c.depth : 0;
+              dragging = hovered; dragging.state = 'drag';
+              dragging.vx = dragging.vy = dragging.vz = 0;
+              lastDragPos = { x: dragging.x, y: dragging.y, z: dragging.z };
+              lastDragTime = performance.now();
+              canvas.classList.add('grabbing');
+            } else if (canvas.requestPointerLock) {
+              canvas.requestPointerLock();
+            }
+          }
+          return;
+        }
+        // 轨道（第三人称）：拖拽空白处转视角，点中物体抓取（战利品球体点击即收集）
+        updateMouse(e);
+        if (tryCollect(hovered)) return;
+        if (hovered && hovered.state !== 'drag') {
+          const c = project(hovered.x, hovered.y, hovered.z, curCosY, curSinY, curCosP, curSinP);
+          dragDepth = c ? c.depth : 0;
+          dragging = hovered; dragging.state = 'drag';
+          dragging.vx = dragging.vy = dragging.vz = 0;
+          lastDragPos = { x: dragging.x, y: dragging.y, z: dragging.z };
+          lastDragTime = performance.now();
+          canvas.classList.add('grabbing');
+        } else {
+          camDrag = true; lastX = e.clientX; lastY = e.clientY;
+        }
+      });
+      window.addEventListener('mousemove', e => {
+        // 第一人称 + 鼠标已锁定：FPS 式瞄准——把增量写入目标角，主循环平滑追近（准心固定在屏幕中心）
+        if (camMode === 'fpv' && document.pointerLockElement === canvas) {
+          yawT += e.movementX * sens;     // 鼠标右移 → 视角右转（灵敏度可在开始界面设置）
+          pitchT += e.movementY * sens;   // 鼠标下移 → 视角低头（FPS 习惯）
+          pitchT = Math.max(-1.5, Math.min(1.55, pitchT));
+          return;
+        }
+        updateMouse(e);
+        if (dragging && dragging.state === 'drag') {
+          const pos = unproject(mouseX, mouseY, dragDepth);
+          const now = performance.now();
+          const dt = Math.max(0.001, (now - lastDragTime) / 1000);
+          dragging.vx = (pos.x - lastDragPos.x) / dt;
+          dragging.vy = (pos.y - lastDragPos.y) / dt;
+          dragging.vz = (pos.z - lastDragPos.z) / dt;
+          const cap = 60;
+          dragging.vx = Math.max(-cap, Math.min(cap, dragging.vx));
+          dragging.vy = Math.max(-cap, Math.min(cap, dragging.vy));
+          dragging.vz = Math.max(-cap, Math.min(cap, dragging.vz));
+          dragging.x = pos.x; dragging.y = pos.y; dragging.z = pos.z;
+          lastDragPos = pos; lastDragTime = now;
+        } else if (camDrag) {
+          // 轨道（第三人称）：写入目标角，由主循环的阻尼插值平滑追上
+          yawT += (e.clientX - lastX) * 0.002;
+          pitchT += (e.clientY - lastY) * 0.002;
+          pitchT = Math.max(0.05, Math.min(1.55, pitchT));
+          lastX = e.clientX; lastY = e.clientY;
+        }
+      });
+      window.addEventListener('mouseup', () => {
+        if (dragging && dragging.state === 'drag') {
+          dragging.state = 'free';
+          const sp = Math.hypot(dragging.vx, dragging.vy, dragging.vz);
+          if (sp > 6) dragging.flash = 0.35;      // 甩出去时边框亮一下
+          dragging = null;
+        }
+        if (fpvGrab) {                            // 长按抓取结束：松开释放
+          fpvGrab.state = 'free';
+          fpvGrab.flash = 0.35;
+          fpvGrab = null;
+        } else if (fpvPressAt > 0) {
+          fpvPunch();                             // 短按击飞 / 点击收集（长按未抓到物体同样触发）
+        }
+        fpvPressAt = 0;
+        camDrag = false;
+        canvas.classList.remove('grabbing');
+      });
+      canvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        if (camMode === 'fpv') {
+          fov -= e.deltaY * 0.6;
+          fov = Math.max(220, Math.min(1500, fov));
+        } else {
+          camDist += e.deltaY * 0.15;
+          camDist = Math.max(60, Math.min(600, camDist));
+        }
+      }, { passive: false });
+      canvas.addEventListener('touchstart', e => { if (e.touches[0]) { updateMouse(e.touches[0]); camDrag = true; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; } });
+      canvas.addEventListener('touchmove', e => {
+        if (!camDrag || !e.touches[0]) return;
+        const dx = e.touches[0].clientX - lastX, dy = e.touches[0].clientY - lastY;
+        if (camMode === 'fpv') {
+          yawT += dx * 0.002; pitchT += dy * 0.002;   // 触屏兜底：与鼠标 FPS 方向一致，同样平滑
+          pitchT = Math.max(-1.5, Math.min(1.55, pitchT));
+        } else {
+          yawT += dx * 0.002; pitchT += dy * 0.002;
+          pitchT = Math.max(0.05, Math.min(1.55, pitchT));
+        }
+        lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+      });
+      canvas.addEventListener('touchend', () => camDrag = false);
+
+      // ---------- 第一人称飞行（WASD + 空格上升 / Shift 下降） ----------
+      const keys = {};
+      window.addEventListener('keydown', e => {
+        const k = e.key.toLowerCase();
+        if (k === 'w' || k === 'a' || k === 's' || k === 'd' || k === ' ' || k === 'shift' || k === 'f' || k === 'c') {
+          keys[k] = true;
+          if (k === ' ') e.preventDefault();   // 空格防止页面滚动
+          if (!e.repeat) {                     // 忽略按住时的系统自动连发，避免误触发双击
+            const now = performance.now();
+            if (k === 'w' && camMode === 'fpv' && now - lastWTime < 320) sprint = !sprint;  // 双击 W：疾跑
+            if (k === 'w') lastWTime = now;
+            // F：驾驶中 → 下木筏；附近有船 → 上船；否则双击 F 切换 飞行 ⇄ 游泳
+            if (k === 'f' && camMode === 'fpv') {
+              if (driving) leaveBoat();
+              else {
+                const nb = findNearbyBoat();
+                if (nb) boardBoat(nb);
+                else if (now - lastFTime < 320) toggleFlySwim();
+              }
+            }
+            if (k === 'f') lastFTime = now;
+            // 双击 空格：飞行 ⇄ 游泳。空格同时是「上浮」，所以用短按判定：
+            // 只有「按下后 200ms 内就松开」才算一次敲击，长按上浮不会误触发切换。
+            if (k === ' ' && camMode === 'fpv') {
+              spaceDownAt = now;
+              if (lastSpaceTap > 0 && now - lastSpaceTap < 320) {
+                toggleFlySwim(); lastSpaceTap = 0; spaceTapUsed = true;
+              }
+            }
+          }
+        }
+      });
+      window.addEventListener('keyup', e => {
+        const k = e.key.toLowerCase();
+        if (k in keys) keys[k] = false;
+        if (k === ' ') {                       // 空格松开：短按才算一次敲击（长按是上浮）
+          const now = performance.now();
+          if (spaceTapUsed) spaceTapUsed = false;   // 这次松开是双击的第二下，不再记为敲击
+          else if (now - spaceDownAt < 200) { lastSpaceTap = now; jumpTap = true; }
+        }
+      });
+
+      function toggleFlySwim() {
+        camState = camState === 'fly' ? 'swim' : 'fly';
+        if (camState === 'swim') {
+          // 保留当前高度作为 swimOff：高空切过来时会走 airborne 分支自由落体砸进水里，
+          // 而不是把 swimOff 归零导致相机瞬移到水面。落水水花由 airbornePrev 分支触发。
+          swimOff = camY - (waveHeight(camX, camZ, curT) + SWIM_EYE_H);
+          camVy = 0; swimVy = 0; swimSplash = false;
+        } else swimSplash = false;
+      }
+      // ---------- 游泳物理 ----------
+      // 水平：目标速度（玩家输入 + 顺坡水流 + 浪涌推力）→ 以惯性逼近，再受水阻；
+      // 竖直：空中自由落体，水中是「浮力弹簧 + 水阻」，Shift 下潜、空格上浮，都带惯性。
+      function updateSwim(dt) {
+        const sy = waveHeight(camX, camZ, curT);
+        // 空格短按跳跃只消费一次：站在屋顶上触发跳跃，否则忽略
+        const wantJump = jumpTap; jumpTap = false;
+        // 站在遗迹顶面 = 走路模式：WASD 慢速走动，完全不被水流/洋流推动
+        if (standY > -999) {
+          if (wantJump) {
+            // 跳跃：脱离顶面支撑，给一个向上初速，随后走空中自由落体
+            camVy = JUMP_V; swimVy = JUMP_V;
+            swimOff = camY - (sy + SWIM_EYE_H);
+            standY = -1e9;
+            airbornePrev = true;
+            return;
+          }
+          const fx2 = Math.sin(yaw), fz2 = -Math.cos(yaw);
+          const rx2 = Math.cos(yaw), rz2 = Math.sin(yaw);
+          let mx2 = 0, mz2 = 0;
+          if (keys['w']) { mx2 += fx2; mz2 += fz2; }
+          if (keys['s']) { mx2 -= fx2; mz2 -= fz2; }
+          if (keys['d']) { mx2 += rx2; mz2 += rz2; }
+          if (keys['a']) { mx2 -= rx2; mz2 -= rz2; }
+          const m2 = Math.hypot(mx2, mz2);
+          if (m2 > 0) {
+            const sp2 = 6.5 * dt / m2;
+            camX += mx2 * sp2; camZ += mz2 * sp2;
+          }
+          swimVX = 0; swimVZ = 0;
+          camY = standY;                 // 竖直由顶面支撑
+          swimVy = 0; swimOff = 0;
+          underwater = false; submergeAmt = 0;
+          return;
+        }
+        const sl = waveSlope(camX, camZ, curT);
+        const steep = Math.hypot(sl.x, sl.z);
+
+        // ---- 水平 ----
+        const fx = Math.sin(yaw), fz = -Math.cos(yaw);
+        const rx = Math.cos(yaw), rz = Math.sin(yaw);
+        let mx = 0, mz = 0;
+        if (keys['w']) { mx += fx; mz += fz; }
+        if (keys['s']) { mx -= fx; mz -= fz; }
+        if (keys['d']) { mx += rx; mz += rz; }
+        if (keys['a']) { mx -= rx; mz -= rz; }
+        const mlen = Math.hypot(mx, mz);
+        let tvx = 0, tvz = 0;
+        if (mlen > 0) {
+          const dirX = mx / mlen, dirZ = mz / mlen;
+          // 逆坡吃力、顺坡省力；坡越陡差别越大
+          const along = dirX * sl.x + dirZ * sl.z;
+          let fac = 1 - along * SLOPE_INFLUENCE;
+          if (fac < 0.45) fac = 0.45; else if (fac > 1.6) fac = 1.6;
+          const sp = FPV_SWIM_SPEED * (sprint ? SPRINT_MULT : 1) * fac * (underwater ? 0.85 : 1);
+          tvx = dirX * sp; tvz = dirZ * sp;
+        }
+        // 水流：沿下坡方向自然漂移
+        tvx += -sl.x * WAVE_DRIFT * (0.5 + steep);
+        tvz += -sl.z * WAVE_DRIFT * (0.5 + steep);
+        const cu0 = currentAt(camX, camZ, curT);      // 洋流把游泳的你也带着漂
+        tvx += cu0.x * 0.8; tvz += cu0.z * 0.8;
+        // 浪涌把人也一起推着走
+        const sp2 = surgePush(camX, camZ);
+        tvx += sp2.x * 0.5; tvz += sp2.z * 0.5;
+
+        const k = Math.min(1, SWIM_ACCEL * dt);
+        swimVX += (tvx - swimVX) * k;
+        swimVZ += (tvz - swimVZ) * k;
+        swimVX *= (1 - SWIM_DRAG * dt);
+        swimVZ *= (1 - SWIM_DRAG * dt);
+        camX += swimVX * dt; camZ += swimVZ * dt;
+
+        // ---- 竖直 ----
+        // camY = 水面 + 眼睛高度 + swimOff。也就是说人始终「骑」在浪面上（随波起伏没有延迟），
+        // 而 swimOff 才是动力学量：浮力弹簧 + 水阻 + Shift 下潜 / 空格 上浮，自带惯性。
+        const floatY = sy + SWIM_EYE_H;
+        if (standY > -999) {
+          // 竖直受遗迹支撑（站在顶面或攀爬中）：完全跳过浮力弹簧/重力——
+          // 否则顶面高于水面时浮力会把玩家拉回水面、再被水平推开，表现为「站不上被弹开」
+          camY = standY;
+          swimVy = 0;
+          swimOff = 0;
+          airbornePrev = false;
+        } else {
+        const airborne = swimOff > AIR_OFF;
+        if (airborne) {
+          // 明显离开水面（从空中落下 / 被大浪抛起）：真实重力自由落体
+          camVy -= G * FALL_G_MUL * dt;
+          camVy *= (1 - 0.12 * dt);
+          if (camVy < -FALL_TERMINAL) camVy = -FALL_TERMINAL;   // 终端速度：从超高大楼掉下也不会无限加速
+          camY += camVy * dt;
+          swimOff = camY - floatY;
+          swimVy = camVy;
+        } else {
+          if (airbornePrev && camVy < -8) spawnSplash(camX, camZ, 7);   // 砸回水面
+          // 从空中落回水面时：进入短暂的「扎入」状态，先沉进水里再被浮力推回——
+          // 不然扑腾落回只在水面弹一下，没有「掉下来沉进水里」的真实物理感
+          if (airbornePrev && swimVy < -4) sinkT = 0.32;
+          // 水下浮力减弱，所以按住 Shift 能潜得更深
+          const buoyK = (swimOff < -SWIM_EYE_H) ? BUOY_K * BUOY_UNDER : BUOY_K;
+          let a = -swimOff * buoyK - swimVy * BUOY_C;
+          if (keys['shift'] || keys['c']) a -= DIVE_ACC;   // C 键与 Shift 等效下潜
+          if (keys[' ']) a += RISE_ACC;
+          // 潜水后无操作：缓慢上浮，约为空格主动上浮速度的 0.3 倍
+          if (!keys['shift'] && !keys['c'] && !keys[' '] && swimOff < -SWIM_EYE_H) a += RISE_ACC * 0.3;
+          // 扎入中：保持向下的速度、浮力暂时减弱，让人真正沉进水里一点
+          if (sinkT > 0) {
+            sinkT -= dt;
+            swimVy = Math.min(swimVy, -5.5);
+            a *= 0.3;
+          }
+          // 上浮到水面附近时周期性「扑腾」：每 0.5~0.95s 给一个向上的脉冲，
+          // 冲过 AIR_OFF 进入自由落体、跃出水面后落回，再扑腾——像踩水/往上扑腾的样子
+          if (keys[' '] && swimOff > -2.5) {
+            paddleT -= dt;
+            if (paddleT <= 0) {
+              swimVy += PADDLE_BOOST;
+              paddleT = 0.5 + Math.random() * 0.45;
+            }
+          }
+          swimVy += a * dt;
+          swimOff += swimVy * dt;
+          if (swimOff < -MAX_DIVE) { swimOff = -MAX_DIVE; if (swimVy < 0) swimVy = 0; }
+          camY = floatY + swimOff;
+          // 深海压力（软性，不是空气墙）：越接近海底，向下的速度被衰减得越狠，
+          // 直至几乎潜不动——但松手就会被浮力推回，贴底时下潜只能慢吞吞挪
+          if (camY < SEABED_Y + SEABED_SOFT && swimVy < 0) {
+            const rr = 1 - (camY - SEABED_Y) / SEABED_SOFT;   // 0=刚进软区，1=贴底
+            swimVy *= 1 - rr * rr * Math.min(0.95, SEABED_VISC * dt);
+          }
+          camVy = swimVy;
+          if (swimSplash) { spawnSplash(camX, camZ, 7); swimSplash = false; }
+        }
+        airbornePrev = airborne;
+        }
+
+        // ---- 入水 / 出水 ----
+        const nowSub = camY < sy;
+        if (wasSubmerged && !nowSub && camVy > 3) spawnSplash(camX, camZ, Math.min(6, camVy * 0.4));
+        if (!wasSubmerged && nowSub && camVy < -6) spawnSplash(camX, camZ, Math.min(9, -camVy * 0.7));
+        if (wasSubmerged !== nowSub) Sfx.plunge(nowSub);   // 入水/出水各来一声闷响
+        wasSubmerged = nowSub;
+        underwater = camY < sy - 0.35;
+        submergeAmt = underwater ? Math.min(1, (sy - camY - 0.35) / 5) : 0;
+
+        // 随波横滚（水下减弱）
+        const rollT = Math.max(-0.25, Math.min(0.25, sl.x * 0.55)) * (underwater ? 0.4 : 1);
+        curRoll += (rollT - curRoll) * Math.min(1, dt * 5);
+
+        // 潜水时随机冒气泡
+        if (underwater) {
+          bubbleT -= dt;
+          if (bubbleT <= 0) { Sfx.bubble(); bubbleT = 0.25 + Math.random() * 1.1; }
+        } else bubbleT = 0.4;
+      }
+
+      function updateFPV(dt) {
+        if (camMode !== 'fpv') return;
+        if (driving && boat) { updateBoat(dt); return; }
+        // 水平前向 / 右向：只由偏航决定，与俯仰无关
+        const fx = Math.sin(yaw), fz = -Math.cos(yaw);
+        const rx = Math.cos(yaw), rz = Math.sin(yaw);
+        const spd = FPV_SPEED * (sprint ? SPRINT_MULT : 1);
+        if (camState === 'swim') { updateSwim(dt); return; }
+        // 飞行：朝向只跟随鼠标的水平方向；竖直只由 空格 / Shift 控制
+        let mx = 0, mz = 0, my = 0;
+        if (keys['w']) { mx += fx; mz += fz; }
+        if (keys['s']) { mx -= fx; mz -= fz; }
+        if (keys['d']) { mx += rx; mz += rz; }
+        if (keys['a']) { mx -= rx; mz -= rz; }
+        if (keys[' ']) my += 1;        // 空格：垂直上升
+        if (keys['shift'] || keys['c']) my -= 1;    // Shift / C：垂直下降
+        const hlen = Math.hypot(mx, mz);
+        if (hlen > 0) {
+          const sp = spd * dt / hlen;  // 斜向不加速
+          camX += mx * sp; camZ += mz * sp;
+        }
+        camY += my * spd * dt;
+      }
+
+      // 木筏驾驶：W/S 前后、A/D 转向（视角同步转向），带惯性；Shift/C/空格 下船
+      function updateBoat(dt) {
+        const accel = 20, turn = 1.6, spdMax = 30;   // 木筏：明显快于游泳
+        if (keys['w']) { boat.vx += Math.sin(boat.yawBoat) * accel * dt; boat.vz -= Math.cos(boat.yawBoat) * accel * dt; }
+        if (keys['s']) { boat.vx -= Math.sin(boat.yawBoat) * accel * 0.55 * dt; boat.vz += Math.cos(boat.yawBoat) * accel * 0.55 * dt; }
+        if (keys['a']) boat.yawBoat -= turn * dt;    // A 左转
+        if (keys['d']) boat.yawBoat += turn * dt;    // D 右转
+        const sp = Math.hypot(boat.vx, boat.vz);
+        if (sp > spdMax) { boat.vx *= spdMax / sp; boat.vz *= spdMax / sp; }
+        boat.vx *= (1 - 0.5 * dt); boat.vz *= (1 - 0.5 * dt);
+        boat.x += boat.vx * dt; boat.z += boat.vz * dt;
+        boat.ry = boat.yawBoat;
+        // 转向只给视角一个「叠加」：不锁死视角，玩家仍可用鼠标自由转头看四周
+        const dYaw = boat.yawBoat - (boat.prevYawBoat === undefined ? boat.yawBoat : boat.prevYawBoat);
+        boat.prevYawBoat = boat.yawBoat;
+        if (dYaw) { yawT += dYaw; yaw += dYaw; }
+        // 相机在船尾上方偏后，能看到整艘木筏
+        camX = boat.x - Math.sin(boat.yawBoat) * 3;
+        camZ = boat.z + Math.cos(boat.yawBoat) * 3;
+        camY = waveHeight(boat.x, boat.z, curT) + 10.2;   // 乘木筏时视角抬高（1.7 → 3.4 → 10.2）
+        camVy = 0; swimOff = 0;
+        underwater = false; submergeAmt = 0;
+        // 脱离
+        if (keys['shift'] || keys['c'] || keys[' ']) leaveBoat();
+      }
+
+      // ---------- 第一人称：单击击飞物体 / 长按抓取 ----------
+      // 锁定鼠标后准心在屏幕中心：短按 = 击飞；长按(>0.18s) = 抓取准心物体跟随准心拖动。
+      const PUNCH_RANGE = 26;        // 可击飞的最大距离（贴近了才够得着）
+      const PUNCH_SPEED = 28;        // 击飞初速
+      let fpvGrab = null, fpvPressAt = 0, fpvGrabDepth = 0;   // 长按抓取状态
+      function findCrosshairFloater(includeCollect) {
+        let best = null, bestSd = Infinity;
+        for (const f of floaters) {
+          if (f === dragging || f === fpvGrab) continue;
+          if (f.type === 'ruin' || f.type === 'boat') continue;
+          if (!includeCollect && f.collectible) continue;   // 只有点击（击飞）才包含收集球，长按抓取不抓走它
+          const dx = f.x - camX, dz = f.z - camZ;
+          if (dx * dx + dz * dz > PUNCH_RANGE * PUNCH_RANGE) continue;   // 超出距离
+          const c = project(f.x, f.y, f.z, curCosY, curSinY, curCosP, curSinP);
+          if (!c) continue;                                              // 在相机后方
+          const sd = Math.hypot(c.sx - cx, c.sy - cy);
+          // 收集球放宽判定：球常半沉在水下、球心在水面以下，点中露出的部分也该能收集
+          const rR = estimateScreenR(f, c);
+          const accept = f.collectible ? rR * 3.5 + 26 : rR * 1.8 + 14;
+          if (sd > accept) continue;                                     // 不在准心附近
+          if (sd < bestSd) { bestSd = sd; best = f; }
+        }
+        return best;
+      }
+      function fpvPunch() {
+        const best = findCrosshairFloater(true);   // 含收集球：准心点中球体即可收集
+        if (!best) return false;
+        if (tryCollect(best)) return true;        // 收集战利品球体：不击飞，收走计数
+        const pl = Math.hypot(Math.cos(pitch) * Math.sin(yaw), -Math.cos(pitch) * Math.cos(yaw)) || 1e-4;
+        const dirX = Math.cos(pitch) * Math.sin(yaw) / pl;
+        const dirZ = -Math.cos(pitch) * Math.cos(yaw) / pl;
+        const sp = PUNCH_SPEED * (0.9 + Math.random() * 0.25);
+        best.vx = dirX * sp;
+        best.vz = dirZ * sp;
+        best.vy = 5 + Math.random() * 4;
+        best.flash = 0.35;                       // 边框亮一下，明确反馈“打中了”
+        Sfx.ping(1.15, 1180);                    // 击飞：清脆的一声「叮」
+        spawnSplash(best.x, best.z, 3);
+        return true;
+      }
+
+      // ---------- 飞溅与水波 ----------
+      function spawnSplash(x, z, strength) {
+        const sy = waveHeight(x, z, curT);
+        const n = 24 + ((strength * 8) | 0);
+        for (let i = 0; i < n; i++) {
+          const ang = Math.random() * 6.2832;
+          const sp = 3 + Math.random() * (4 + strength * 1.5);
+          splashes.push({
+            x: x, y: sy, z: z,
+            vx: Math.cos(ang) * sp, vz: Math.sin(ang) * sp,
+            vy: 6 + Math.random() * (8 + strength * 2),
+            life: 0.5 + Math.random() * 0.9, maxLife: 1.4
+          });
+        }
+        ripples.push({ x: x, z: z, t0: curT, strength: Math.min(0.9 * rippleScale, (0.25 + strength * 0.06) * rippleScale) });
+      }
+
+      // ---------- 音效：全部用 Web Audio 现场合成，不依赖任何外部音频文件 ----------
+      const Sfx = (() => {
+        let ac = null, master = null, lp = null, noiseBuf = null;
+        let ambGain = null, ambFilter = null, rumbleGain = null;
+        let ready = false, muted = false, vol = 0.5;   // vol：主音量（开始界面设置）
+
+        function makeNoise() {
+          const len = ac.sampleRate * 2;
+          const buf = ac.createBuffer(1, len, ac.sampleRate);
+          const d = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+          return buf;
+        }
+
+        function init() {
+          if (ready) return;
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return;                       // 浏览器不支持就静默降级
+          ac = new AC();
+          noiseBuf = makeNoise();
+          master = ac.createGain(); master.gain.value = muted ? 0 : vol;
+          // 主低通：潜到水下把整体声音闷掉，是最省事也最像的水下听感
+          lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 20000;
+          master.connect(lp); lp.connect(ac.destination);
+
+          // 环境海浪：白噪声 → 低通，音量与截止频率随浪的剧烈程度起伏
+          const src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+          ambFilter = ac.createBiquadFilter(); ambFilter.type = 'lowpass';
+          ambFilter.frequency.value = 620; ambFilter.Q.value = 0.7;
+          ambGain = ac.createGain(); ambGain.gain.value = 0.11;
+          src.connect(ambFilter); ambFilter.connect(ambGain); ambGain.connect(master);
+          src.start();
+
+          // 水下低频轰鸣，只在潜水时推上来
+          const rs = ac.createBufferSource(); rs.buffer = noiseBuf; rs.loop = true;
+          const rf = ac.createBiquadFilter(); rf.type = 'lowpass'; rf.frequency.value = 180;
+          rumbleGain = ac.createGain(); rumbleGain.gain.value = 0;
+          rs.connect(rf); rf.connect(rumbleGain); rumbleGain.connect(master);
+          rs.start();
+          ready = true;
+        }
+
+        const now = () => ac.currentTime;
+
+        // 环境音随海况变化：浪越陡越响、越亮；水下压暗
+        function updateAmbient(steep, surge, sub) {
+          if (!ready) return;
+          const t = now();
+          const lvl = 0.085 + 0.11 * Math.min(1, steep * 1.6) + 0.22 * Math.min(1, surge / 14);
+          ambGain.gain.setTargetAtTime(muted ? 0 : lvl * (1 - 0.45 * sub), t, 0.35);
+          ambFilter.frequency.setTargetAtTime(480 + 1100 * Math.min(1, steep * 2 + surge / 16), t, 0.35);
+          // 水下：主低通压到 700Hz 左右 + 低频轰鸣
+          lp.frequency.setTargetAtTime(20000 - 19300 * sub, t, 0.2);
+          rumbleGain.gain.setTargetAtTime(muted ? 0 : 0.30 * sub, t, 0.3);
+        }
+
+        // 叮：金属质感，用基频 + 一个非整数倍泛音
+        function ping(strength, freq) {
+          if (!ready || muted) return;
+          const t = now();
+          const g = ac.createGain();
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.linearRampToValueAtTime(0.22 * strength, t + 0.004);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+          g.connect(master);
+          const partials = [[1, 1, 'sine'], [2.76, 0.32, 'sine'], [5.4, 0.12, 'sine']];
+          for (const [mul, amp, type] of partials) {
+            const o = ac.createOscillator(); o.type = type;
+            o.frequency.value = freq * mul;
+            const og = ac.createGain(); og.gain.value = amp;
+            o.connect(og); og.connect(g);
+            o.start(t); o.stop(t + 0.55);
+          }
+        }
+
+        // 气泡：短促上滑的正弦，潜水时随机冒
+        function bubble() {
+          if (!ready || muted) return;
+          const t = now();
+          const o = ac.createOscillator(); o.type = 'sine';
+          const f0 = 380 + Math.random() * 520;
+          o.frequency.setValueAtTime(f0, t);
+          o.frequency.exponentialRampToValueAtTime(f0 * 2.3, t + 0.085);
+          const g = ac.createGain();
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.linearRampToValueAtTime(0.075, t + 0.008);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+          o.connect(g); g.connect(master);
+          o.start(t); o.stop(t + 0.15);
+        }
+
+        // 入水/出水：一声闷响
+        function plunge(down) {
+          if (!ready || muted) return;
+          const t = now();
+          const src = ac.createBufferSource(); src.buffer = noiseBuf;
+          src.playbackRate.value = down ? 0.55 : 0.9;
+          const f = ac.createBiquadFilter();
+          f.type = 'lowpass'; f.frequency.value = down ? 420 : 900; f.Q.value = 1.2;
+          const g = ac.createGain();
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.linearRampToValueAtTime(0.3, t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+          src.connect(f); f.connect(g); g.connect(master);
+          src.start(t); src.stop(t + 0.55);
+        }
+
+        function setMuted(m) {
+          muted = m;
+          if (ready) master.gain.setTargetAtTime(m ? 0 : vol, now(), 0.05);
+        }
+        function setVolume(v) {
+          vol = v;
+          if (ready) master.gain.setTargetAtTime(muted ? 0 : vol, now(), 0.05);
+        }
+        // 木筏发动机：持续的低频轰鸣（噪声 + 低通）
+        let engSrc = null, engGain = null, engFilter = null;
+        function setEngine(on) {
+          if (!ready) return;
+          if (on && !engSrc) {
+            engSrc = ac.createBufferSource(); engSrc.buffer = noiseBuf; engSrc.loop = true;
+            engFilter = ac.createBiquadFilter();
+            engFilter.type = 'lowpass'; engFilter.frequency.value = 85; engFilter.Q.value = 1.1;
+            engGain = ac.createGain();
+            engGain.gain.setValueAtTime(0, now());
+            engGain.gain.linearRampToValueAtTime(muted ? 0 : 0.45, now() + 0.4);
+            engSrc.connect(engFilter); engFilter.connect(engGain); engGain.connect(master);
+            engSrc.start();
+          } else if (!on && engSrc) {
+            engGain.gain.setTargetAtTime(0, now(), 0.15);
+            const src = engSrc, g = engGain, fl = engFilter;
+            setTimeout(() => { try { src.stop(); } catch (e) {} src.disconnect(); g.disconnect(); fl.disconnect(); }, 600);
+            engSrc = null; engGain = null; engFilter = null;
+          }
+        }
+        return { init, updateAmbient, ping, bubble, plunge, setMuted, setVolume, setEngine,
+                 get muted() { return muted; }, get ready() { return ready; } };
+      })();
+
+      // ---------- 绘制漂浮体 ----------
+      function strokeClippedLoop(worldPts, planeY) {
+        const n = worldPts.length;
+        let drawing = false;
+        const flush = () => { if (drawing) { ctx.stroke(); drawing = false; } };
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
+        for (let i = 0; i < n; i++) {
+          const A = worldPts[i], B = worldPts[(i + 1) % n];
+          const Ain = A.y >= planeY, Bin = B.y >= planeY;
+          if (Ain && Bin) {
+            const pa = project(A.x, A.y, A.z, curCosY, curSinY, curCosP, curSinP);
+            const pb = project(B.x, B.y, B.z, curCosY, curSinY, curCosP, curSinP);
+            if (!pa || !pb) { flush(); continue; }
+            if (!drawing) { ctx.beginPath(); ctx.moveTo(pa.sx, pa.sy); drawing = true; }
+            ctx.lineTo(pb.sx, pb.sy);
+          } else if (Ain && !Bin) {
+            const t = (planeY - A.y) / (B.y - A.y);
+            const I = { x: A.x + t * (B.x - A.x), y: planeY, z: A.z + t * (B.z - A.z) };
+            const pa = project(A.x, A.y, A.z, curCosY, curSinY, curCosP, curSinP);
+            const pi = project(I.x, I.y, I.z, curCosY, curSinY, curCosP, curSinP);
+            if (!pa || !pi) { flush(); continue; }
+            if (!drawing) { ctx.beginPath(); ctx.moveTo(pa.sx, pa.sy); drawing = true; }
+            ctx.lineTo(pi.sx, pi.sy); flush();
+          } else if (!Ain && Bin) {
+            const t = (planeY - A.y) / (B.y - A.y);
+            const I = { x: A.x + t * (B.x - A.x), y: planeY, z: A.z + t * (B.z - A.z) };
+            const pi = project(I.x, I.y, I.z, curCosY, curSinY, curCosP, curSinP);
+            const pb = project(B.x, B.y, B.z, curCosY, curSinY, curCosP, curSinP);
+            if (!pi || !pb) { flush(); continue; }
+            if (!drawing) { ctx.beginPath(); ctx.moveTo(pi.sx, pi.sy); drawing = true; }
+            ctx.lineTo(pb.sx, pb.sy);
+          }
+        }
+        flush();
+      }
+
+      function drawFloater(f, t) {
+        const surfaceY = waveHeight(f.x, f.z, t);
+        const glow = f.hover || f === dragging;
+        const flash = f.flash > 0 ? Math.min(1, f.flash / 0.35) : 0;   // 被打飞时边框亮一下
+        // 不再整组隐藏：物体按其深度层参与渲染，被波挡住的部分由黑色波面遮罩逐段截断
+
+        if (f.type === 'ruin') {
+          // 遗迹是实心柱体：顶面 + 侧面全部填充白色（半透明），侧面按垂直分段绘制。
+          // 分段的目的：被浪墙「只挡住一部分」时只有被挡的那一段消失，其余面保留，
+          // 不会整条线/整张面突然消失。
+          const sect = ruinSection(f);
+          const local = sect.map(p => rotVec([p[0], 0, p[1]], f.rx, f.ry));  // 截面顶点的世界偏移
+          const topY = f.y;
+          const span = topY - SEABED_Y;
+          if (span <= 0) return;
+          // 波面遮挡：世界点若被「更近的浪峰」挡住则跳过绘制。
+          // 玩家站在遗迹上、或紧挨着遗迹（28 单位内）时禁用；高处（水面 4 单位以上）
+          // 也不遮挡——游泳贴水时远处看楼不会整座突然截断消失，只有贴近水面的部分被浪逐块挡住。
+          const occAt = (wx, wy, wz) => {
+            if (occStrength <= 0.02 || standY > -999) return false;
+            if (Math.hypot(wx - camX, wz - camZ) < 28) return false;
+            if (wy > surfaceY + 4) return false;
+            const pr = project(wx, wy, wz, curCosY, curSinY, curCosP, curSinP);
+            if (!pr) return true;
+            let c = (pr.sx / OCC_COL_W) | 0;
+            if (c < 0) c = 0; else if (c >= occCols) c = occCols - 1;
+            const k = occLayerOf(wx - occCamX, wz - occCamZ);
+            return pr.sy >= occHorizon(k * occCols + c);
+          };
+          const proj3 = (x, y, z) => project(x, y, z, curCosY, curSinY, curCosP, curSinP);
+          const DARK_DEPTH = 90, SEG = 20;  // 每面更薄，被浪挡住时逐块消失更细腻、交错遮挡更自然
+
+          // 收集所有面：顶面 + 每条边从上到下分成 SEG 个四边形面
+          const faces = [];
+          faces.push({ pts: local.map(v => ({ x: f.x + v[0], y: topY + v[1], z: f.z + v[2] })), isTop: true });
+          for (let e = 0; e < sect.length; e++) {
+            const A = local[e], B = local[(e + 1) % sect.length];
+            for (let i = 0; i < SEG; i++) {
+              const t0 = i / SEG, t1 = (i + 1) / SEG;
+              const y0 = topY - span * t0, y1 = topY - span * t1;
+              faces.push({
+                pts: [
+                  { x: f.x + A[0], y: y0 + A[1], z: f.z + A[2] },
+                  { x: f.x + A[0], y: y1 + A[1], z: f.z + A[2] },
+                  { x: f.x + B[0], y: y1 + B[1], z: f.z + B[2] },
+                  { x: f.x + B[0], y: y0 + B[1], z: f.z + B[2] }
+                ]
+              });
+            }
+          }
+          // 按平均深度从远到近排序（画家算法）
+          for (const fa of faces) {
+            let d = 0;
+            for (const p of fa.pts) { const pr = proj3(p.x, p.y, p.z); d += pr ? pr.depth : 0; }
+            fa.depth = d / fa.pts.length;
+          }
+          faces.sort((a, b) => b.depth - a.depth);
+
+          for (const fa of faces) {
+            // 水面裁剪：水上只看水面以上，水下只看水面以下
+            const clipped = underwater ? clipPolyYBelow(fa.pts, surfaceY) : clipPolyY(fa.pts, surfaceY);
+            if (clipped.length < 3) continue;
+            // 波面遮挡：侧面段用中心点判断（被挡的那一段消失，其余保留）；
+            // 顶面用「整面都被挡」判断，换角度时只要还有一半可见就不会消失。
+            let occ = 0;
+            for (const p of clipped) if (occAt(p.x, p.y, p.z)) occ++;
+            if (fa.isTop ? occ === clipped.length : occ > 0) continue;
+            // 部分顶点投影失败（穿过相机/超近）时丢弃它们，只要还有 ≥3 个点就继续画，
+            // 避免整张面因为个别顶点失效而突然消失
+            const prs = [];
+            for (const p of clipped) { const pr = proj3(p.x, p.y, p.z); if (pr) prs.push(pr); }
+            if (prs.length < 2) continue;
+            // 越深越暗，最后消失在深处
+            let cy = 0; for (const p of clipped) cy += p.y; cy /= clipped.length;
+            const depth = Math.max(0, surfaceY - cy);
+            // 生成后 1.2 秒内透明度从 0 渐入，整座遗迹丝滑地出现（而不是面一块块冒出）
+            const grow = Math.min(1, Math.max(0, (curT - (f.born || 0)) / 1.2));
+            const a = (cy > surfaceY ? 0.9 : 0.72 * Math.pow(Math.max(0, 1 - depth / DARK_DEPTH), 1.3)) * grow;
+            if (a < 0.03) continue;
+            if (prs.length === 2) {
+              // 垂直视角下侧面退化成一条线：画成边框线，保证遗迹仍然可见不消失
+              ctx.beginPath();
+              ctx.moveTo(prs[0].sx, prs[0].sy);
+              ctx.lineTo(prs[1].sx, prs[1].sy);
+              ctx.strokeStyle = 'rgba(255,255,255,' + a.toFixed(3) + ')';
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+              continue;
+            }
+            ctx.beginPath();
+            ctx.moveTo(prs[0].sx, prs[0].sy);
+            for (let k = 1; k < prs.length; k++) ctx.lineTo(prs[k].sx, prs[k].sy);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(216,227,246,' + (0.28 * a).toFixed(3) + ')';   // 所有面填充白色
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,' + a.toFixed(3) + ')';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+          }
+          return;
+        }
+
+        if (f.type === 'boat') {
+          // 木筏：多条长方体木板并排绑在一起，再压上横梁
+          const yaw0 = f.yawBoat || 0, s = f.sc;
+          const parts = [];
+          for (let i = -2; i <= 2; i++) {
+            parts.push({ hx: 0.35*s, hy: 0.18*s, hz: 2.4*s, oy: 0.18*s, oz: 0, fx: i * 0.72*s,
+              fill: 'rgba(196,168,122,0.36)' });   // 5 条纵向木板并排
+          }
+          for (const oz of [-1.5*s, 1.5*s]) {
+            parts.push({ hx: 1.85*s, hy: 0.14*s, hz: 0.34*s, oy: 0.15*s, oz, fx: 0,
+              fill: 'rgba(178,150,104,0.42)' });   // 2 条横向横梁绑住
+          }
+          for (const p of parts) {
+            const world = [];
+            for (const v of boxVerts(p.hx, p.hy, p.hz)) {
+              // 注意用 -yaw0：rotVec 的绕 Y 旋转与「前进方向 (sin, -cos)」在 X 上镜像，
+              // 取负后模型转向才和木筏实际行进方向一致（按 A 左转，模型也向左摆）
+              const rv = rotVec([v[0] + (p.fx || 0), v[1], v[2] + p.oz], 0, -yaw0);
+              world.push({ x: f.x + rv[0], y: f.y + p.oy + rv[1], z: f.z + rv[2] });
+            }
+            const projed = world.map(w => project(w.x, w.y, w.z, curCosY, curSinY, curCosP, curSinP));
+            if (projed.some(pr => !pr)) continue;
+            const order = BOX_FACES.map(fc => {
+              let d = 0; for (const vi of fc) d += projed[vi].depth;
+              return { fc, d: d / fc.length };
+            }).sort((a, b) => b.d - a.d);
+            for (const o of order) {
+              const wpoly = o.fc.map(vi => world[vi]);
+              const clipped = underwater ? clipPolyYBelow(wpoly, surfaceY) : clipPolyY(wpoly, surfaceY);
+              if (clipped.length < 3) continue;
+              ctx.beginPath();
+              let ok = true;
+              for (let k = 0; k < clipped.length; k++) {
+                const pr = project(clipped[k].x, clipped[k].y, clipped[k].z, curCosY, curSinY, curCosP, curSinP);
+                if (!pr) { ok = false; break; }
+                if (k === 0) ctx.moveTo(pr.sx, pr.sy); else ctx.lineTo(pr.sx, pr.sy);
+              }
+              if (!ok) continue;
+              ctx.closePath();
+              ctx.fillStyle = p.fill; ctx.fill();
+              ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.2; ctx.stroke();
+            }
+          }
+          return;
+        }
+
+        if (f.type === 'sphere') {
+          const c = project(f.x, f.y, f.z, curCosY, curSinY, curCosP, curSinP);
+          const wl = project(f.x, surfaceY, f.z, curCosY, curSinY, curCosP, curSinP);
+          if (!c || !wl) return;
+          const r = Math.max(2, 2.6 * f.sc * c.s);
+          ctx.save();
+          if (underwater) {                                        // 水下：只看水面以下那半截
+            ctx.beginPath(); ctx.rect(0, wl.sy, W, Math.max(0, H - wl.sy)); ctx.clip();
+          } else {
+            ctx.beginPath(); ctx.rect(0, 0, W, wl.sy); ctx.clip();  // 仅显示海面以上（含接触海面的圆）
+          }
+          const g = ctx.createRadialGradient(c.sx - r * 0.3, c.sy - r * 0.3, r * 0.2, c.sx, c.sy, r);
+          g.addColorStop(0, 'rgba(255,255,255,1)');
+          g.addColorStop(0.7, 'rgba(232,236,244,1)');
+          g.addColorStop(1, 'rgba(165,173,190,1)');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(c.sx, c.sy, r, 0, 6.2832); ctx.fill();
+          if (glow) {
+            ctx.shadowColor = 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 16;
+            ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(c.sx, c.sy, r, 0, 6.2832); ctx.stroke();
+          }
+          ctx.restore();
+          // 收集球：一闪一闪地发光，吸引玩家来拾取
+          if (f.collectible) {
+            const tw = 0.5 + 0.5 * Math.sin(curT * 5.2 + f.x * 1.7 + f.z * 2.3);   // 0~1 闪烁
+            ctx.save();
+            ctx.shadowColor = 'rgba(255,255,255,0.95)';
+            ctx.shadowBlur = 6 + tw * 18;
+            ctx.beginPath(); ctx.arc(c.sx, c.sy, r, 0, 6.2832);
+            ctx.fillStyle = 'rgba(255,255,255,0.95)';
+            ctx.fill();
+            // 扩散的光环
+            ctx.beginPath();
+            ctx.arc(c.sx, c.sy, r * (1.4 + tw * 0.5), 0, 6.2832);
+            ctx.strokeStyle = 'rgba(255,255,255,' + (0.2 + tw * 0.55).toFixed(3) + ')';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.restore();
+          }
+          // 海面接触圈：球被海面切出的圆，透视投影为椭圆，完整一圈画在裁剪外
+          const R0 = 2.6 * f.sc;
+          const hC = surfaceY - f.y;                       // 球心到海面的距离
+          if (Math.abs(hC) < R0) {
+            const rc = Math.sqrt(Math.max(0, R0 * R0 - hC * hC)) * c.s;
+            if (rc > 0.6) {
+              const ry = Math.max(1.2, rc * Math.max(0.28, Math.abs(curSinP)));
+              ctx.beginPath();
+              ctx.ellipse(wl.sx, wl.sy, rc, ry, 0, 0, 6.2832);
+              ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+              ctx.lineWidth = 1.3;
+              ctx.stroke();
+            }
+          }
+          return;
+        }
+
+        let verts, faces;
+        if (f.type === 'tetra') { verts = TETRA_VERTS; faces = TETRA_FACES; }
+        else if (f.type === 'cuboid') { verts = boxVerts(1.4, 3.0, 1.4); faces = BOX_FACES; }
+        else if (f.type === 'star') { verts = STAR_VERTS; faces = STAR_FACES; }
+        else if (f.type === 'pyramid') { verts = PYRAMID_VERTS; faces = PYRAMID_FACES; }
+        else if (f.type === 'octa') { verts = OCTA_VERTS; faces = OCTA_FACES; }
+        else if (f.type === 'diamond') { verts = DIAMOND_VERTS; faces = DIAMOND_FACES; }
+        else { verts = boxVerts(2.4, 2.4, 2.4); faces = BOX_FACES; }   // box
+
+        const world = [];
+        for (const v of verts) {
+          const rv = rotVec([v[0] * f.sc, v[1] * f.sc, v[2] * f.sc], f.rx, f.ry);
+          world.push({ x: f.x + rv[0], y: f.y + rv[1], z: f.z + rv[2] });
+        }
+        const projed = world.map(w => project(w.x, w.y, w.z, curCosY, curSinY, curCosP, curSinP));
+        if (projed.some(p => !p)) return;
+
+        const order = faces.map(fc => {
+          let d = 0; for (const vi of fc) d += projed[vi].depth;
+          return { fc, d: d / fc.length };
+        }).sort((a, b) => b.d - a.d);
+
+        if (glow || flash > 0) {
+          ctx.shadowColor = 'rgba(255,255,255,0.9)';
+          ctx.shadowBlur = 14 + flash * 22;
+        }
+        for (const o of order) {
+          const wpoly = o.fc.map(vi => world[vi]);
+          const clipped = underwater ? clipPolyYBelow(wpoly, surfaceY) : clipPolyY(wpoly, surfaceY);
+          if (clipped.length < 3) continue;
+          ctx.beginPath();
+          let ok = true;
+          for (let k = 0; k < clipped.length; k++) {
+            const pr = project(clipped[k].x, clipped[k].y, clipped[k].z, curCosY, curSinY, curCosP, curSinP);
+            if (!pr) { ok = false; break; }
+            if (k === 0) ctx.moveTo(pr.sx, pr.sy); else ctx.lineTo(pr.sx, pr.sy);
+          }
+          if (!ok) continue;
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(255,255,255,' + (0.07 + 0.13 * flash).toFixed(2) + ')'; ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,' + (glow ? 0.95 : 0.75 + 0.25 * flash).toFixed(2) + ')';
+          ctx.lineWidth = (glow ? 2.2 : 1) + flash * 1.8;
+          ctx.stroke();
+        }
+        ctx.shadowBlur = 0;
+      }
+
+      // ---------- 主循环 ----------
+      const start = performance.now();
+      function frame() {
+        const now = performance.now();
+        let dt = (now - lastFrame) / 1000; lastFrame = now;
+        if (dt > 0.05) dt = 0.05;
+        curT = (now - start) / 1000;
+        updateSurges(dt);        // 随机海况：大浪 / 海啸 / 超大海啸 / 龙卷风的生成与清理
+
+        // 环境海浪声：跟着脚下真实的浪陡度与浪涌强度起伏
+        {
+          const sl0 = waveSlope(camX, camZ, curT);
+          const sg = surgeHeight(camX, camZ, curT);
+          Sfx.updateAmbient(Math.hypot(sl0.x, sl0.z), Math.abs(sg), submergeAmt);
+        }
+
+        // 视角朝向：两种模式都用「目标角 → 当前角」阻尼插值——轨道较缓、第一人称快速跟手但平滑
+        if (camMode === 'orbit') {
+          if (!camDrag) yawT += 0.0016;                 // 缓慢自转，拖拽时暂停避免“打架”
+          const k = Math.min(1, dt * 9);
+          yaw += (yawT - yaw) * k;
+          pitch += (pitchT - pitch) * k;
+        } else {
+          const k = Math.min(1, dt * 18);               // 第一人称：快速跟手又不生硬
+          yaw += (yawT - yaw) * k;
+          pitch += (pitchT - pitch) * k;
+        }
+        curCosY = Math.cos(yaw); curSinY = Math.sin(yaw);
+        curCosP = Math.cos(pitch); curSinP = Math.sin(pitch);
+        updateFPV(dt);
+        // 创造模式长按抓取：按住左键 0.18s 抓取准心物体，物体跟随准心拖动
+        if (camMode === 'fpv' && document.pointerLockElement === canvas && fpvPressAt > 0) {
+          if (!fpvGrab && performance.now() - fpvPressAt > 180) {
+            const t = findCrosshairFloater();
+            if (t) {
+              fpvGrab = t;
+              fpvGrab.state = 'drag';
+              const c = project(t.x, t.y, t.z, curCosY, curSinY, curCosP, curSinP);
+              fpvGrabDepth = c ? c.depth : 0;
+            }
+          }
+          if (fpvGrab) {
+            const pr = unproject(cx, cy, fpvGrabDepth);
+            if (pr) {
+              fpvGrab.x = pr.x; fpvGrab.z = pr.z;
+              fpvGrab.y = Math.max(0, pr.y);
+              fpvGrab.vx = 0; fpvGrab.vy = 0; fpvGrab.vz = 0;
+            }
+          }
+        }
+        camVelX = (camX - prevCamX) / dt; camVelZ = (camZ - prevCamZ) / dt;
+        prevCamX = camX; prevCamZ = camZ;
+
+        // 第一人称：相机移动超过阈值后，重建统一粒子场 + 物体流式渲染（无限画布、随飞随载、超距即删）
+        if (camMode === 'fpv') {
+          if (Math.hypot(camX - lastFpvX, camZ - lastFpvZ) > FPV_REBUILD_DIST) {
+            buildFPVParticles(camX, camZ);
+            lastFpvX = camX; lastFpvZ = camZ;
+          }
+          streamFloaters(camX, camZ);
+          if (camState !== 'swim') {
+            // 非游泳：清掉游泳状态（竖直运动已在 updateSwim 内处理）
+            camVy = 0;
+            swimVX = 0; swimVZ = 0;
+            swimOff = 0; swimVy = 0; airbornePrev = false;
+            underwater = false; submergeAmt = 0; wasSubmerged = false;
+            curRoll += (0 - curRoll) * Math.min(1, dt * 5);
+          }
+        } else {
+          curRoll += (0 - curRoll) * Math.min(1, dt * 5);
+          swimVX = 0; swimVZ = 0; swimOff = 0; swimVy = 0; airbornePrev = false;
+          underwater = false; submergeAmt = 0; wasSubmerged = false;
+          // 轨道视角：洋流会把物体慢慢带走，定期把漂远的重新放回（遗迹锚定不动，不处理）
+          for (const f of floaters) {
+            if (f.type === 'ruin' || f === dragging) continue;
+            if (Math.hypot(f.x, f.z) > OCEAN * 0.45) {
+              f.x = (Math.random() - 0.5) * OCEAN * 0.82;
+              f.z = (Math.random() - 0.5) * OCEAN * 0.82;
+              f.vx = 0; f.vz = 0;
+            }
+          }
+        }
+        curCosR = Math.cos(curRoll); curSinR = Math.sin(curRoll);
+        if (eventT > 0) { eventT -= dt; if (eventT <= 0) eventTag.style.display = 'none'; }
+        if (window.__S) { const S = window.__S;
+          S.camY = camY; S.camX = camX; S.camZ = camZ; S.state = camState;
+          S.surf = waveHeight(camX, camZ, curT); S.floaters = floaters;
+          S.count = collectCount; S.driving = driving; S.tornados = tornados;
+          S.splashes = splashes;
+          S.sens = sens; S.yaw = yaw; S.pitch = pitch; S.mode = camMode;
+          S.seabed = SEABED_Y; S.maxDive = MAX_DIVE; S.dive = DIVE_ACC; S.rise = RISE_ACC;
+          S.cols = 0; for (const f of floaters) if (f.collectible) S.cols++;
+          S.board = boardBoat; S.spawnBoat = spawnBoat; S.leave = leaveBoat; S.tor = spawnTornado;
+          S.setCam = (x, z, y) => { camX = x; camZ = z; camY = y; };
+          S.setYaw = (y) => { yaw = y; yawT = y; };
+          S.setPitch = (p) => { pitch = p; pitchT = p; }; }
+
+        // 波面不透明：求相机世界坐标——FPV 直接用相机位置；轨道由 距离+俯仰/偏航 反推
+        if (camMode === 'fpv') { occCamX = camX; occCamY = camY; occCamZ = camZ; }
+        else { occCamX = -camDist * curCosP * curSinY; occCamY = camDist * curSinP; occCamZ = camDist * curCosP * curCosY; }
+
+        // 漂浮体物理（统一模型：空气中受重力，水中受随深度增强的浮力+水阻）
+        for (let fi = floaters.length - 1; fi >= 0; fi--) {
+          const f = floaters[fi];
+          f.rx += f.sx * 0.01; f.ry += f.sy * 0.01;
+          if (f.flash > 0) f.flash -= dt;                       // 被打飞时的边框高亮
+          if (f.state === 'drag') continue;   // 拖拽中由鼠标直接设定位置
+          const surfaceY = waveHeight(f.x, f.z, curT);
+          const sub = surfaceY - f.y;         // >0 表示没入水下，<0 表示浮在水上
+          const under = sub > 0;
+          if (f.type === 'ruin') continue;    // 遗迹长在海底，不动、不随波起伏
+          if (f.type === 'boat') { f.y = surfaceY + 0.25; continue; }   // 木筏浮在水面，漂移由驾驶控制
+          if (sub < -FREEFALL_GAP) {
+            // 明显高于水面（真实下落 / 被抛起）→ 自由落体
+            f.vy -= G * dt;
+            f.vy *= (1 - 0.4 * dt);
+            f.y += f.vy * dt;
+            f.vx *= 0.99; f.vz *= 0.99;
+          } else {
+            // 水面附近（含水下）→ 同一阻尼弹簧朝波面回位：水下浮力向上、水上轻拉向下，随波轻浮不溅
+            const ay = SPRING_K * sub - WATER_C * f.vy;
+            f.vy += ay * dt;
+            f.y += f.vy * dt;
+            if (under) { f.vx *= 0.93; f.vz *= 0.93; } else { f.vx *= 0.99; f.vz *= 0.99; }
+          }
+          const sp = surgePush(f.x, f.z);      // 浪涌把漂浮物一起推走（海啸尤其明显）
+          f.vx += sp.x * dt; f.vz += sp.z * dt;
+          if (f.type !== 'ruin') {             // 活海：物体被水缓缓推着走（遗迹长在海底，不动）
+            const cu = currentAt(f.x, f.z, curT);
+            f.vx += cu.x * dt * OBJ_CURRENT; f.vz += cu.z * dt * OBJ_CURRENT;
+            // 顺坡下溜：浮在斜面上的物体会被重力分量推着往低处走
+            const fsl = waveSlope(f.x, f.z, curT);
+            f.vx += -fsl.x * OBJ_DRIFT * dt; f.vz += -fsl.z * OBJ_DRIFT * dt;
+          }
+          f.x += f.vx * dt; f.z += f.vz * dt;
+          // 飞溅：仅在“相对水面”高速穿越时触发（真实入水 / 破出），随波轻浮不溅
+          const relVy = f.vy - waveVel(f.x, f.z, curT);
+          if (f.wasSub && !under && relVy > 8) {
+            spawnSplash(f.x, f.z, Math.min(6, relVy * 0.5));
+            f.vy *= 0.5;                               // 破水阻力
+          } else if (!f.wasSub && under && relVy < -8) {
+            spawnSplash(f.x, f.z, Math.min(10, Math.abs(relVy)));
+          }
+          f.wasSub = under;
+        }
+
+        // 物体间碰撞：在水平面 XZ 上检测与分离，避免把漂浮体压入水下而误触发水花
+        for (let i = 0; i < floaters.length; i++) {
+          for (let j = i + 1; j < floaters.length; j++) {
+            const a = floaters[i], b = floaters[j];
+            const ra = collideR(a), rb = collideR(b);
+            let dx = a.x - b.x, dz = a.z - b.z;
+            let dist = Math.sqrt(dx * dx + dz * dz);
+            const minD = ra + rb;
+            if (dist >= minD) continue;
+            if (dist < 1e-4) { dx = Math.random() - 0.5; dz = Math.random() - 0.5; dist = Math.sqrt(dx*dx+dz*dz) || 1e-4; }
+            const nx = dx / dist, nz = dz / dist;
+            const overlap = minD - dist;
+            // 遗迹长在海底（逆质量 0）；木筏很重（0.25），撞到漂浮物几乎不会被拖慢
+            const massInv = (t) => t === 'ruin' ? 0 : (t === 'boat' ? 0.25 : 1);
+            const invA = (a.state === 'drag' ? 0 : massInv(a.type));
+            const invB = (b.state === 'drag' ? 0 : massInv(b.type));
+            const invSum = invA + invB;
+            if (invSum === 0) continue;
+            // 仅水平方向分离（按逆质量分配），竖直方向保持由浮力/重力决定
+            a.x += nx * overlap * (invA / invSum); a.z += nz * overlap * (invA / invSum);
+            b.x -= nx * overlap * (invB / invSum); b.z -= nz * overlap * (invB / invSum);
+            // 水平相对速度，正在接近则施加冲量（碰撞效果）
+            const vn = (a.vx - b.vx) * nx + (a.vz - b.vz) * nz;
+            if (vn < 0) {
+              const e = 0.35;                       // 恢复系数
+              const jImp = -(1 + e) * vn / invSum;
+              a.vx += jImp * invA * nx; a.vz += jImp * invA * nz;
+              b.vx -= jImp * invB * nx; b.vz -= jImp * invB * nz;
+            }
+          }
+        }
+
+        // 游泳模式：相机与物体的碰撞——一撞即开、不卡滞；撞飞方向沿“视角移动方向”，物体顺波飘走
+        if (camMode === 'fpv' && camState === 'swim') {
+          const camR = 2.8;
+          // 撞飞方向 = 相机实际移动方向（视角移动方向）；相机几乎静止时回退到视角前向
+          let mvx = camVelX, mvz = camVelZ;
+          let mLen = Math.hypot(mvx, mvz);
+          let cdX, cdZ, baseSpd;
+          if (mLen > 0.8) {
+            cdX = mvx / mLen; cdZ = mvz / mLen;
+            baseSpd = Math.max(mLen * 1.3, 22); // 明显快于相机：撞开后能甩脱接触，不会卡在视角里
+          } else {
+            const pl = Math.hypot(Math.cos(pitch) * Math.sin(yaw), -Math.cos(pitch) * Math.cos(yaw)) || 1e-4;
+            cdX = Math.cos(pitch) * Math.sin(yaw) / pl;
+            cdZ = -Math.cos(pitch) * Math.cos(yaw) / pl;
+            baseSpd = 24;
+          }
+          for (let fi = floaters.length - 1; fi >= 0; fi--) {
+            const f = floaters[fi];
+            if (f === dragging || f === fpvGrab) continue;
+            if (f.type === 'ruin') continue;      // 遗迹由下面的遗迹碰撞单独处理（挡住玩家）
+            if (f === boat && driving) continue;  // 正在驾驶的木筏不参与碰撞
+            let dx = camX - f.x, dz = camZ - f.z;
+            let dist = Math.sqrt(dx * dx + dz * dz);
+            const minD = camR + collideR(f);
+            if (dist >= minD) continue;
+            // 收集球：一碰到就自动收走，不会被撞飞（这是收集的主要途径之一）
+            if (f.collectible) { tryCollect(f); continue; }
+            if (dist < 1e-4) { dx = Math.random() - 0.5; dz = Math.random() - 0.5; dist = Math.sqrt(dx*dx+dz*dz) || 1e-4; }
+            const nx = dx / dist, nz = dz / dist;
+            // 分离：法向 n 由物体指向相机，物体沿 -n 被推开。
+            // 玩家有碰撞箱但不会被撞开，所以只分离物体、相机位置不动。
+            const overlap = minD - dist;
+            f.x -= nx * (overlap + 0.6); f.z -= nz * (overlap + 0.6);
+            // 撞飞：沿视角移动方向赋初速，随后的漂移由浮动物理（随波轻浮/缓衰减）自然完成
+            const speed = baseSpd * (0.9 + Math.random() * 0.2);
+            f.vx = cdX * speed;
+            f.vz = cdZ * speed;
+            f.flash = 0.35;                    // 被撞飞时边框亮一下
+            Sfx.ping(0.75, 820);               // 撞上物体：闷一点的一声「叮」
+          }
+        }
+
+        // 遗迹碰撞：遗迹是彻底实体的墙——谁也穿不过去，包括飞行模式。
+        // 游泳时顶面够缓可以站上去（被顶面托住）、贴着墙按住空格能攀爬；
+        // 飞行时无论高低都被遗迹挡下：低于顶面被水平推开，高于顶面则被压到墙顶上。
+        if (camMode === 'fpv') {
+          const wasStandY = standY;                           // 记录上帧的支撑高度
+          standY = -1e9;                                      // 先假设无支撑，循环里检测到再更新
+          for (const f of floaters) {
+            if (f.type !== 'ruin') continue;
+            const dx = camX - f.x, dz = camZ - f.z;
+            const [lx, lz] = ruinToLocal(f, dx, dz);
+            const [hx, hz] = ruinHalf(f);
+            const pad = 0.8;                                  // 玩家半径
+            if (Math.abs(lx) > hx + pad || Math.abs(lz) > hz + pad) continue;
+            const topAt = ruinTopAt(f, lx, lz);
+            const feet = camY - SWIM_EYE_H;
+            const tilt = Math.abs(f.rx);
+            if (feet >= topAt - 0.4) {
+              // 已到顶面高度。飞行时：高过顶面就能自由飞越（否则低头俯视遗迹时
+              // 会被强制压到顶面高度、看起来像被传送回海面）；只有低空撞侧面才被挡。
+              // 游泳时：只有「贴近顶面」才被托住站上去；若还远高于顶面（正从高空
+              // 下落或从上方经过），继续自由落体/飞过，不瞬间压到顶面。
+              if (camState !== 'swim') continue;
+              if (camY - (topAt + SWIM_EYE_H) > 2.5) continue;
+              if (swimVy > 2) continue;              // 跳跃上升中不被吸回顶面
+              if (tilt > RUIN_MAX_TILT) {
+                const dir = Math.sin(f.rx) > 0 ? 1 : -1;      // 顶面下坡方向（局部 +z1）
+                const cy = Math.cos(f.ry), sy = Math.sin(f.ry);
+                const slide = 26 * dt;
+                camX += (-sy * dir) * slide; camZ += (cy * dir) * slide;
+              } else {
+                camY = topAt + SWIM_EYE_H;                    // 被顶面托住 = 站上去了
+                standY = camY;
+                swimVy = 0; swimOff = 0;
+              }
+              continue;
+            }
+            // 在顶面以下：贴着墙面按空格且坡度够缓 → 沿墙爬上去（上浮本身只有 1.2 单位，
+            // 够不到高塔顶面，所以攀爬必须单独给一个向上的速度）。攀爬高度同样交给 standY
+            // 保持，否则浮力弹簧每帧把 camY 拉回水面、根本爬不上去。
+            if (camState === 'swim' && keys[' '] && tilt <= RUIN_MAX_TILT && (topAt - feet) < CLIMB_REACH) {
+              camY += CLIMB_SPEED * dt;
+              standY = camY;
+              continue;
+            }
+            // 否则像墙一样挡住，沿最浅的一侧水平推出
+            const outX = (hx + pad) - Math.abs(lx);
+            const outZ = (hz + pad) - Math.abs(lz);
+            let nlx = lx, nlz = lz;
+            if (outX < outZ) nlx = (lx < 0 ? -1 : 1) * (hx + pad);
+            else nlz = (lz < 0 ? -1 : 1) * (hz + pad);
+            const [wx, wz] = ruinToWorld(f, nlx, nlz);
+            camX = f.x + wx; camZ = f.z + wz;
+          }
+          // 从顶面边缘离开（上帧有支撑、本帧没有）：保持当前高度并从那里自由落体，
+          // 而不是 swimOff 仍是 0 导致瞬间掉到海面——那看起来像「传送」。
+          if (wasStandY > -999 && standY <= -999) {
+            camY = Math.max(camY, wasStandY);
+            const fY = waveHeight(camX, camZ, curT) + SWIM_EYE_H;
+            swimOff = camY - fY;
+            swimVy = 0;
+          }
+        }
+        // 注：这里曾有“游泳时把相机硬贴回水面”的兜底，会抵消下潜，已移除——
+        // 竖直位置现在完全交给 updateSwim 的浮力弹簧处理。
+
+        // 悬停检测（第一人称锁定鼠标时按准心瞄准，不按光标悬停）；遗迹/木筏不参与悬停/拖动
+        hovered = null;
+        if (!dragging && !(camMode === 'fpv' && document.pointerLockElement === canvas)) {
+          let bestD = Infinity, best = null;
+          for (const f of floaters) {
+            if (f.type === 'ruin' || f.type === 'boat') continue;
+            const c = project(f.x, f.y, f.z, curCosY, curSinY, curCosP, curSinP);
+            if (!c) continue;
+            const r = estimateScreenR(f, c);
+            const d = Math.hypot(mouseX - c.sx, mouseY - c.sy);
+            // 收集球放宽悬停：点中露在水面上的部分也能收走
+            const hoverR = f.collectible ? r * 3.2 : r * 1.5;
+            if (d < hoverR && d < bestD) { bestD = d; best = f; }
+          }
+          hovered = best;
+        }
+        for (const f of floaters) f.hover = (f === hovered);
+
+        // ---------- 渲染：从远到近逐层，黑色波面遮罩截断粒子与物体 ----------
+        ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H);
+        computeOcclusion();
+
+        // 粒子归入深度层
+        for (let k = 0; k < OCC_LAYERS; k++) layerLists[k].length = 0;
+        for (let n = 0; n < COUNT; n++) {
+          const x = baseX[n], z = baseZ[n];
+          const y = waveHeight(x, z, curT);
+          const pr = project(x, y, z, curCosY, curSinY, curCosP, curSinP);
+          if (!pr) { projV[n] = 0; continue; }
+          projX[n] = pr.sx; projY[n] = pr.sy; projS[n] = pr.s; projV[n] = 1;
+          let hb = ((y + AMP) / (2 * AMP) * 23) | 0;
+          if (hb < 0) hb = 0; if (hb > 23) hb = 23;
+          let a = bucketA[hb] * baseFog[n];
+          if (camMode === 'fpv') {
+            // FPV 近处浪墙：贴近相机的波面粒子更亮更实
+            const ddx = x - camX, ddz = z - camZ;
+            const d2 = ddx * ddx + ddz * ddz;
+            if (d2 < 900) { const nk = 1 - Math.sqrt(d2) / 30; a = Math.min(1, a + nk * nk * 0.6); }
+          }
+          projA[n] = a;
+          layerLists[occLayerOf(x - occCamX, z - occCamZ)].push(n);
+        }
+        // 物体归入深度层（近处的物体会画在远处物体的遮罩之上，互相也能正确遮挡）
+        for (let k = 0; k < OCC_LAYERS; k++) objLayerLists[k].length = 0;
+        for (const f of floaters) objLayerLists[occLayerOf(f.x - occCamX, f.z - occCamZ)].push(f);
+
+        // 从远到近逐层绘制；每个粒子单独与波面地平线比较，物体则按地平线裁剪
+        for (let k = OCC_LAYERS - 1; k >= 0; k--) {
+          const row = k * occCols;
+          ctx.globalCompositeOperation = 'lighter';
+          const arr = layerLists[k];
+          for (let q = 0; q < arr.length; q++) {
+            const n = arr[q];
+            const a = projA[n];
+            if (a <= 0.02) continue;
+            // 波面遮挡：落在「更近浪峰」形成的地平线之下 → 被浪挡住，不绘制
+            if (occStrength > 0.02) {
+              let col = (projX[n] / OCC_COL_W) | 0;
+              if (col < 0) col = 0; else if (col >= occCols) col = occCols - 1;
+              if (projY[n] >= occHorizon(row + col)) continue;
+            }
+            ctx.fillStyle = 'rgba(255,255,255,' + a.toFixed(3) + ')';
+            const sz = Math.max(0.6, Math.min(3.2, projS[n] * 0.95));
+            ctx.fillRect(projX[n] - sz * 0.5, projY[n] - sz * 0.5, sz, sz);
+          }
+          ctx.globalCompositeOperation = 'source-over';
+          const objs = objLayerLists[k];
+          for (let q = 0; q < objs.length; q++) {
+            const f = objs[q];
+            if (f.type === 'ruin' || f.type === 'boat') continue;   // 遗迹/木筏在层循环外画，避免逐层裁剪撕裂
+            const c = project(f.x, f.y, f.z, curCosY, curSinY, curCosP, curSinP);
+            if (!c) continue;
+            ctx.save();
+            clipToHorizon(row);
+            drawFloater(f, curT);
+            ctx.restore();
+          }
+        }
+
+        // 遗迹 / 木筏：在层循环外统一绘制，避免被逐层裁剪切成碎块
+        for (const f of floaters) {
+          if (f.type === 'ruin' || f.type === 'boat') {
+            const c = project(f.x, f.y, f.z, curCosY, curSinY, curCosP, curSinP);
+            if (c) { ctx.save(); drawFloater(f, curT); ctx.restore(); }
+          }
+        }
+
+        // 飞溅粒子
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = splashes.length - 1; i >= 0; i--) {
+          const s = splashes[i];
+          s.vy -= G * 0.6 * dt;
+          s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
+          s.life -= dt;
+          if (s.life <= 0) { splashes.splice(i, 1); continue; }
+          const pr = project(s.x, s.y, s.z, curCosY, curSinY, curCosP, curSinP);
+          if (!pr) continue;
+          const a = Math.max(0, s.life / s.maxLife);
+          const sz = 1 + a * 2.5;
+          ctx.fillStyle = 'rgba(255,255,255,' + (0.6 * a) + ')';
+          ctx.fillRect(pr.sx - sz * 0.5, pr.sy - sz * 0.5, sz, sz);
+        }
+
+        // 收集动画：球先在原位变大变亮 → 再缩成小球飞向左上角图标
+        for (let i = collectFx.length - 1; i >= 0; i--) {
+          const fx = collectFx[i];
+          const el = (curT - fx.t0) / 1.0;
+          if (el >= 1) {
+            collectCount++;
+            updateCollectUI();
+            collectFx.splice(i, 1);
+            continue;
+          }
+          const grow = Math.min(1, el / 0.4);              // 阶段1：海面球体变大变亮
+          const fly = Math.max(0, (el - 0.4) / 0.6);       // 阶段2：缩小飞向 UI
+          const e = 1 - Math.pow(1 - fly, 2.2);            // 缓出
+          const gx = fx.sx + (COLLECT_UI_X - fx.sx) * e;
+          const gy = fx.sy + (COLLECT_UI_Y - fx.sy) * e;
+          if (grow < 1) {
+            // 保持「海面上漂浮的球体」样式：白色渐变球 + 海面接触椭圆，整体变大变亮
+            const gl = Math.sin(grow * Math.PI);           // 0→1→0
+            const R = Math.max(3, fx.r * (1 + 1.3 * grow));
+            ctx.beginPath();
+            ctx.arc(fx.sx, fx.sy, R * (1.5 + gl * 0.8), 0, 6.2832);
+            ctx.fillStyle = 'rgba(255,255,255,' + (0.15 + 0.25 * gl).toFixed(3) + ')';
+            ctx.fill();
+            const g = ctx.createRadialGradient(fx.sx - R * 0.3, fx.sy - R * 0.3, R * 0.15, fx.sx, fx.sy, R);
+            g.addColorStop(0, 'rgba(255,255,255,' + (0.75 + 0.25 * gl).toFixed(3) + ')');
+            g.addColorStop(0.7, 'rgba(232,236,244,' + (0.7 + 0.3 * gl).toFixed(3) + ')');
+            g.addColorStop(1, 'rgba(165,173,190,' + (0.6 + 0.4 * gl).toFixed(3) + ')');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(fx.sx, fx.sy, R, 0, 6.2832); ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(fx.sx, fx.sy + R, R * 0.95, R * 0.28, 0, 0, 6.2832);
+            ctx.strokeStyle = 'rgba(255,255,255,' + (0.5 + 0.4 * gl).toFixed(3) + ')';
+            ctx.lineWidth = 1.3; ctx.stroke();
+          } else {
+            // 缩成小球飞向左上角
+            const r2 = 6 * (1 - 0.75 * fly);
+            ctx.beginPath();
+            ctx.arc(gx, gy, Math.max(1.6, r2), 0, 6.2832);
+            ctx.fillStyle = 'rgba(255,255,255,0.95)';
+            ctx.fill();
+          }
+        }
+        ctx.globalCompositeOperation = 'source-over';
+
+        // 龙卷风：螺旋线条 + 旋转圆弧 + 风柱粒子 + 从海里吸出的方块碎片 + 海面水雾，出场由小到大
+        for (let i = tornados.length - 1; i >= 0; i--) {
+          const td = tornados[i];
+          const age = curT - td.t0;
+          if (age > td.life) continue;
+          const grow = Math.min(1, age / 2.5);        // 出场过渡：由小到大
+          const a = (1 - age / td.life) * 0.95 * grow;
+          if (a < 0.02) continue;
+          const R = td.r * grow;
+          const H = td.height * grow;
+          const baseY = waveHeight(td.x, td.z, curT);
+          // 1) 螺旋线条：16 条绕中轴快速旋转，构成漏斗外壁
+          for (let s = 0; s < 16; s++) {
+            const baseA = s / 16 * 6.2832;
+            ctx.beginPath();
+            let started = false;
+            for (let k = 0; k <= 34; k++) {
+              const t = k / 34;
+              const h = t * H;
+              const rr = (2 + t * (R * 0.92 - 2)) * (0.74 + 0.26 * Math.sin(curT * 3.2 + s * 1.3));
+              const aa = baseA + t * 8.6 + curT * 5.2;          // 快速旋转
+              const pr = project(td.x + Math.cos(aa) * rr, baseY + h, td.z + Math.sin(aa) * rr,
+                curCosY, curSinY, curCosP, curSinP);
+              if (!pr) { started = false; continue; }
+              if (!started) { ctx.moveTo(pr.sx, pr.sy); started = true; } else ctx.lineTo(pr.sx, pr.sy);
+            }
+            ctx.strokeStyle = 'rgba(222,232,255,' + (a * 0.45).toFixed(2) + ')';
+            ctx.lineWidth = 1 + a * 1.5;
+            ctx.stroke();
+          }
+          // 2) 旋转圆弧线条：分层弧段绕轴转动，模拟被卷起来的气流环
+          for (let s = 0; s < 22; s++) {
+            const t = s / 21;
+            const h = t * H;
+            const rr = R * (0.16 + 0.84 * t) * (0.86 + 0.14 * Math.sin(curT * 3.6 + s));
+            const startA = curT * (4.4 - t * 1.8) + s * 1.9;    // 各层转速不同 → 扭出螺旋感
+            const span = 2.0 + 1.5 * (1 - t);
+            ctx.beginPath();
+            let started = false;
+            for (let k = 0; k <= 12; k++) {
+              const aa = startA + (k / 12) * span;
+              const pr = project(td.x + Math.cos(aa) * rr, baseY + h, td.z + Math.sin(aa) * rr,
+                curCosY, curSinY, curCosP, curSinP);
+              if (!pr) { started = false; continue; }
+              if (!started) { ctx.moveTo(pr.sx, pr.sy); started = true; } else ctx.lineTo(pr.sx, pr.sy);
+            }
+            ctx.strokeStyle = 'rgba(210,226,255,' + (a * (0.3 + 0.2 * (1 - t))).toFixed(2) + ')';
+            ctx.lineWidth = 1 + a * 1.4;
+            ctx.stroke();
+          }
+          // 3) 内部旋转粒子（风柱里的水汽 / 水滴）
+          for (let p = 0; p < 52; p++) {
+            const tt = (p / 52 + (curT * 0.5) % 1) % 1;
+            const h = tt * H * 0.96;
+            const rr = (2 + tt * (R * 0.6)) * (0.8 + 0.2 * Math.sin(curT * 5 + p * 2.4));
+            const aa = p * 2.4 + curT * 5.6 + tt * 8;
+            const pr = project(td.x + Math.cos(aa) * rr, baseY + h, td.z + Math.sin(aa) * rr,
+              curCosY, curSinY, curCosP, curSinP);
+            if (!pr) continue;
+            ctx.fillStyle = 'rgba(255,255,255,' + (a * 0.95).toFixed(2) + ')';
+            ctx.fillRect(pr.sx - 1.5, pr.sy - 1.5, 3, 3);
+          }
+          // 4) 被从海里吸出来、绕着龙卷风旋转上升的方块碎片
+          for (const d of td.debris) {
+            const t = Math.max(0, Math.min(1, d.h / H));
+            const wx = td.x + Math.cos(d.ang) * d.rad * grow;
+            const wz = td.z + Math.sin(d.ang) * d.rad * grow;
+            const wy = baseY + d.h * grow;
+            if (!project(wx, wy, wz, curCosY, curSinY, curCosP, curSinP)) continue;
+            const s = d.size * (0.5 + 0.5 * grow);
+            const world = [];
+            for (const v of boxVerts(0.5 * s, 0.5 * s, 0.5 * s)) {
+              const rv = rotVec([v[0], v[1], v[2]], d.rx, d.ry);
+              world.push({ x: wx + rv[0], y: wy + rv[1], z: wz + rv[2] });
+            }
+            const projed = world.map(w => project(w.x, w.y, w.z, curCosY, curSinY, curCosP, curSinP));
+            if (projed.some(q => !q)) continue;
+            const order = BOX_FACES.map(fc => {
+              let dd = 0; for (const vi of fc) dd += projed[vi].depth;
+              return { fc, d: dd / fc.length };
+            }).sort((x, y) => y.d - x.d);
+            const da = a * (0.55 + 0.45 * t);        // 越往上越清晰
+            for (const o of order) {
+              ctx.beginPath();
+              let ok = true;
+              for (let k = 0; k < o.fc.length; k++) {
+                const q = projed[o.fc[k]];
+                if (!q) { ok = false; break; }
+                if (k === 0) ctx.moveTo(q.sx, q.sy); else ctx.lineTo(q.sx, q.sy);
+              }
+              if (!ok) continue;
+              ctx.closePath();
+              ctx.fillStyle = 'rgba(226,236,255,' + (da * 0.16).toFixed(3) + ')';
+              ctx.fill();
+              ctx.strokeStyle = 'rgba(245,250,255,' + (da * 0.85).toFixed(3) + ')';
+              ctx.lineWidth = 1.1;
+              ctx.stroke();
+            }
+          }
+          // 5) 海面接触：翻涌的水雾环 + 溅起的水花（半径随风柱缩放，围绕底部翻涌）
+          for (let p = 0; p < 30; p++) {
+            const ang = p / 30 * 6.2832 + curT * 2.2;
+            const rr = R * (0.3 + 0.9 * (((p * 4.1) % 14) / 14));
+            const pr = project(td.x + Math.cos(ang) * rr, baseY + 0.6 + (p % 3) * 1.4,
+              td.z + Math.sin(ang) * rr, curCosY, curSinY, curCosP, curSinP);
+            if (!pr) continue;
+            ctx.fillStyle = 'rgba(205,228,255,' + (a * (0.5 + 0.4 * Math.sin(curT * 7 + p * 1.7))).toFixed(2) + ')';
+            ctx.fillRect(pr.sx - 2, pr.sy - 2, 4, 4);
+          }
+        }
+
+        // 水下：整体压一层蓝，越深越浓（配合只显示水面以下那半截的物体）
+        if (submergeAmt > 0.01) {
+          ctx.fillStyle = 'rgba(12,58,116,' + (0.45 * submergeAmt).toFixed(3) + ')';
+          ctx.fillRect(0, 0, W, H);
+        }
+
+        // 涟漪老化
+        for (let i = ripples.length - 1; i >= 0; i--) {
+          if (curT - ripples[i].t0 > 5) ripples.splice(i, 1);
+        }
+
+        requestAnimationFrame(frame);
+      }
+
+      // 手动召唤浪涌（海啸默认随机刷新的间隔很长）
+      window.addEventListener('keydown', () => Sfx.init(), { once: true });
+      canvas.addEventListener('mousedown', () => Sfx.init(), { once: true });
+
+      document.getElementById('btnBig').addEventListener('click', () => spawnSurge('huge'));
+      document.getElementById('btnTsu').addEventListener('click', () => spawnSurge('tsunami'));
+      document.getElementById('btnTor').addEventListener('click', () => spawnTornado());
+
+      // ---------- 设置（右上角齿轮）：音效开关 + 召唤事件 ----------
+      const settingsBtn = document.getElementById('settingsBtn');
+      const settingsPanel = document.getElementById('settingsPanel');
+      const sndChk = document.getElementById('sndChk');
+      settingsBtn.addEventListener('click', () => {
+        settingsPanel.style.display = settingsPanel.style.display === 'none' ? 'block' : 'none';
+      });
+      sndChk.addEventListener('change', () => {
+        Sfx.init();
+        Sfx.setMuted(!sndChk.checked);
+      });
+
+      // 视角切换：环绕 ⇄ 第一人称飞行/游泳
+      const viewBtn = document.getElementById('viewBtn');
+      const reticle = document.getElementById('reticle');
+      const eventTag = document.getElementById('eventTag');
+      const collectTag = document.getElementById('collectTag');
+      let eventT = 0;                       // 事件横幅剩余显示时间
+      function showEvent(text) {
+        eventTag.textContent = text;
+        eventTag.style.display = 'block';
+        eventT = 2.6;
+      }
+      function setFpvUi() {
+        reticle.style.display = camMode === 'fpv' ? 'block' : 'none';
+      }
+      viewBtn.addEventListener('click', () => {
+        if (camMode === 'orbit') {
+          camMode = 'fpv';
+          camX = 0; camZ = 70;
+          // 直接进入游泳：眼睛落在水面之上，不再从天上自由落体入水
+          camY = waveHeight(camX, camZ, curT) + SWIM_EYE_H;
+          lastFpvX = camX; lastFpvZ = camZ;
+          yawT = yaw; pitchT = pitch;
+          buildFPVParticles(camX, camZ);    // 进入第一人称即构建无限 LOD 海面
+          floaters = [];
+          streamFloaters(camX, camZ);       // 物体+遗迹都随相机半径流式生成，超出半径删除
+          camState = 'swim'; sprint = false; camVy = 0; swimSplash = true;
+          viewBtn.classList.add('active');
+          viewBtn.title = '视角：第一人称（WASD 移动 / 双击 W 疾跑 / 双击 F 生存⇄创造，点击画面锁定鼠标）';
+          setFpvUi();
+          if (canvas.requestPointerLock) canvas.requestPointerLock();
+        } else {
+          if (driving) leaveBoat();         // 切回环绕先下船
+          camMode = 'orbit';
+          camX = camY = camZ = 0;
+          if (document.pointerLockElement === canvas && document.exitPointerLock) document.exitPointerLock();
+          yawT = yaw; pitchT = pitch;
+          buildParticles(GRID, OCEAN);      // 切回环绕恢复有限海面
+          buildFloaters(objTarget);         // 物体回到原点附近的环绕分布
+          ensureRuins(0, 0);                // 遗迹在原点附近补足
+          ensureCollectibles(0, 0);         // 战利品球体也补足
+          camState = 'fly'; sprint = false; curRoll = 0;
+          viewBtn.classList.remove('active');
+          viewBtn.title = '视角：环绕（点击切换第一人称飞行）';
+          setFpvUi();
+        }
+      });
+
+      // ---------- 全屏 ----------
+      const fullBtn = document.getElementById('fullBtn');
+      function syncFullBtn() {
+        const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+        fullBtn.classList.toggle('active', on);
+        fullBtn.title = on ? '退出全屏' : '全屏';
+      }
+      fullBtn.addEventListener('click', () => {
+        const el = document.documentElement;
+        if (!(document.fullscreenElement || document.webkitFullscreenElement)) {
+          if (el.requestFullscreen) el.requestFullscreen();
+          else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        } else {
+          if (document.exitFullscreen) document.exitFullscreen();
+          else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        }
+      });
+      document.addEventListener('fullscreenchange', syncFullBtn);
+      document.addEventListener('webkitfullscreenchange', syncFullBtn);
+
+      // 启动
+      requestAnimationFrame(frame);
+      const loading = document.getElementById('loading');
+      loading.style.opacity = '0';
+      setTimeout(() => loading.remove(), 800);
+    } catch (err) {
+      const l = document.getElementById('loading');
+      if (l) l.textContent = '初始化失败：' + err.message;
+    }
+  })();
+  </script>
+</body>
+</html>
