@@ -185,6 +185,11 @@
         tsunami: { amp: AMP * 4.6 + 22,   width: 44, speed: 62, dist: 580, msg: '海 啸 来 袭' },
         mega:    { amp: (AMP * 4.6 + 22) * 3, width: 96, speed: 84, dist: 860, msg: '超 大 海 啸 来 袭' }
       };
+      // 海况衰减：浪把人往前卷出这个距离后就开始平息。
+      // 没有这个机制时，超大海啸的推力大到能一直把人顶在浪锋上，
+      // 浪永远超不过玩家 → 永远不会被回收 → 人被无限卷着跑。
+      const SURGE_DRAG_LIMIT = 600;      // 被同一道浪卷着跑了多远后开始平息
+      const SURGE_FADE_RATE = 0.32;      // 平息速度：fade 每秒衰减量（约 3 秒彻底平息）
       function spawnSurge(kind) {
         const cfg = SURGE_KIND[kind] || SURGE_KIND.big;
         const ang = Math.random() * 6.2832;
@@ -195,7 +200,10 @@
           t0: curT,
           speed: cfg.speed,
           amp: cfg.amp,
-          width: cfg.width
+          width: cfg.width,
+          drag: 0,            // 已经把人往前卷了多远
+          fade: 1,            // 平息系数：浪高与推力都乘它，衰减到 0 就撤掉
+          lastProj: undefined // 上一帧玩家在传播方向上的投影位置（用于累计 drag）
         });
         showEvent(cfg.msg);
       }
@@ -206,7 +214,7 @@
           const sg = surges[i];
           const u = (x * sg.dx + z * sg.dz - (sg.p0 + sg.speed * (t - sg.t0))) / sg.width;
           if (u < -2.4 || u > 2.4) continue;
-          h += sg.amp * Math.exp(-u * u * (u > 0 ? 1.8 : 0.5));   // 迎面陡、背面缓
+          h += sg.amp * sg.fade * Math.exp(-u * u * (u > 0 ? 1.8 : 0.5));   // 迎面陡、背面缓
         }
         return h;
       }
@@ -218,7 +226,7 @@
           const sg = surges[i];
           const u = (px * sg.dx + pz * sg.dz - (sg.p0 + sg.speed * (curT - sg.t0))) / sg.width;
           if (u < -2.2 || u > 2.2) continue;
-          const push = sg.amp * (sg.kind === 'mega' ? 5.0 : sg.kind === 'tsunami' ? 3.6 : sg.kind === 'huge' ? 2.2 : 1.1) * Math.exp(-u * u);
+          const push = sg.amp * sg.fade * (sg.kind === 'mega' ? 5.0 : sg.kind === 'tsunami' ? 3.6 : sg.kind === 'huge' ? 2.2 : 1.1) * Math.exp(-u * u);
           pushTmp.x += sg.dx * push; pushTmp.z += sg.dz * push;
         }
         return pushTmp;
@@ -239,7 +247,20 @@
         for (let i = surges.length - 1; i >= 0; i--) {
           const sg = surges[i];
           const front = sg.p0 + sg.speed * (curT - sg.t0);
-          if (front - (camX * sg.dx + camZ * sg.dz) > sg.width * 3 + 260) surges.splice(i, 1);
+          const proj = camX * sg.dx + camZ * sg.dz;
+          const u = (proj - front) / sg.width;
+          // 累计「人被这道浪往前卷了多远」（只在浪的影响范围内统计）
+          if (u > -2.4 && u < 2.4) {
+            if (sg.lastProj === undefined) sg.lastProj = proj;
+            const adv = proj - sg.lastProj;
+            if (adv > 0) sg.drag += adv;
+          }
+          sg.lastProj = proj;
+          // 卷够远了 → 渐渐平息：浪高和推力一起衰减，衰减完直接撤掉。
+          // 这样海啸一定会结束，不会再出现被无限卷着跑的死循环
+          if (sg.drag > SURGE_DRAG_LIMIT) sg.fade -= SURGE_FADE_RATE * dt;
+          if (sg.fade <= 0) { surges.splice(i, 1); continue; }
+          if (front - proj > sg.width * 3 + 260) surges.splice(i, 1);
         }
         updateTornados(dt);
       }
@@ -249,6 +270,14 @@
       // 风柱里还卷着一批「从海里被吸出来」的方块碎片：绕中轴高速旋转、螺旋上升，到顶被甩出去。
       // 玩家被卷起时不做高度限制，而是越转越高、旋转半径越来越大，到约大楼三倍高被甩飞出去。
       const TORNADO_EJECT_H = 500;
+      // 甩飞参数：初速要远大于游泳速度，而且甩出去后必须按「抛体飞行」处理一段时间。
+      // 否则 updateSwim 的水平水阻（SWIM_DRAG）会在零点几秒内把速度拉回正常游速，
+      // 人刚离开风柱就停在原地，根本飞不远。
+      const TORNADO_EJECT_VR = 220;      // 甩飞初速：沿半径向外
+      const TORNADO_EJECT_VT = 300;      // 甩飞初速：沿切线
+      const TORNADO_EJECT_VY = 26;       // 甩飞初速：向上，形成一个抛出弧线
+      const TORNADO_EJECT_T = 2.4;       // 抛飞持续时长：期间不受游泳操控/洋流/浪涌，只有极小空气阻力
+      let ejectT = 0;                    // >0 表示正处于被甩飞的抛体飞行中
       function resetDebris(d, td) {
         d.ang = Math.random() * 6.2832;
         d.h = -8 - Math.random() * 16;             // 从水面以下开始 → 视觉上就是「被从海里吸出来」
@@ -343,7 +372,9 @@
             }
           }
           // 玩家：被慢慢吸向风柱，同时绕着它旋转上升；视角叠加旋转但玩家可以自由转头
-          if (camMode === 'fpv') {
+          // 开船时不走这里（相机由 updateBoat 接管），船的吸附在 updateBoat 里单独处理；
+          // 甩飞过程中也不再被风柱抓回去，让人能真正飞出去
+          if (camMode === 'fpv' && !driving && ejectT <= 0) {
             const dx = camX - td.x, dz = camZ - td.z;
             const d = Math.hypot(dx, dz);
             if (d < R && d > 0.01) {
@@ -370,11 +401,13 @@
                   swimVy = Math.max(swimVy, 5);
                 } else if (!td.ejected) {
                   // 卷到约大楼三倍高 → 沿切线 + 向外甩飞出去，之后自由落体。
-                  // 甩出速度与风柱里杂物被卷动的速度一致（向心 70 / 切向 95），所以能飞很远
+                  // 初速远大于游泳速度，并在 TORNADO_EJECT_T 内按抛体飞行处理，这样才能真被甩到远处
                   td.ejected = true;
-                  swimVX = (dx / d) * 70 + (-dz / d) * 95;
-                  swimVZ = (dz / d) * 70 + (dx / d) * 95;
-                  swimVy = 8;
+                  swimVX = (dx / d) * TORNADO_EJECT_VR + (-dz / d) * TORNADO_EJECT_VT;
+                  swimVZ = (dz / d) * TORNADO_EJECT_VR + (dx / d) * TORNADO_EJECT_VT;
+                  swimVy = TORNADO_EJECT_VY;
+                  camVy = swimVy;
+                  ejectT = TORNADO_EJECT_T;
                 }
                 swimOff = camY - (waveHeight(camX, camZ, curT) + SWIM_EYE_H);
                 camVy = swimVy;
@@ -797,6 +830,7 @@
           type: 'boat', sc: 3.5,
           x: camX + Math.cos(ang) * r, z: camZ + Math.sin(ang) * r,
           y: 0, vx: 0, vz: 0,
+          lift: 0, liftVy: 0,          // 被龙卷风卷起的高度与竖直速度（0 = 正常浮在水面）
           yawBoat: ang, prevYawBoat: ang, ry: ang, rx: 0,
           sx: 0, sy: 0, state: 'free', wasSub: false, hover: false, flash: 0
         });
@@ -811,10 +845,19 @@
       }
       function leaveBoat() {
         Sfx.setEngine(false);
+        const lifted = boat && boat.lift > 2;      // 是否是在被龙卷风卷到空中时下的船
         driving = false;
         boat = null;
         camState = 'swim';
-        swimOff = 0; swimVy = 0;
+        camVy = 0;
+        if (lifted) {
+          // 空中下船：保留此刻的高度差，之后按自由落体掉回海里（否则会瞬移到水面）
+          swimOff = camY - (waveHeight(camX, camZ, curT) + SWIM_EYE_H);
+          swimVy = 0;
+        } else {
+          swimOff = 0; swimVy = 0;
+          camY = waveHeight(camX, camZ, curT) + SWIM_EYE_H;
+        }
         if (camY < waveHeight(camX, camZ, curT)) camY = waveHeight(camX, camZ, curT) + SWIM_EYE_H;
       }
       function ensureCollectibles(cx0, cz0) {
@@ -1285,10 +1328,18 @@
         tvx += sp2.x * 0.5; tvz += sp2.z * 0.5;
 
         const k = Math.min(1, SWIM_ACCEL * dt);
-        swimVX += (tvx - swimVX) * k;
-        swimVZ += (tvz - swimVZ) * k;
-        swimVX *= (1 - SWIM_DRAG * dt);
-        swimVZ *= (1 - SWIM_DRAG * dt);
+        if (ejectT > 0) {
+          // 被龙卷风甩飞中：按抛体飞行处理，不接受游泳操控 / 洋流 / 浪涌，
+          // 只受很小的空气阻力 —— 这样甩出去的高速能保持住，人真的会被甩到远处
+          ejectT -= dt;
+          swimVX *= (1 - 0.18 * dt);
+          swimVZ *= (1 - 0.18 * dt);
+        } else {
+          swimVX += (tvx - swimVX) * k;
+          swimVZ += (tvz - swimVZ) * k;
+          swimVX *= (1 - SWIM_DRAG * dt);
+          swimVZ *= (1 - SWIM_DRAG * dt);
+        }
         camX += swimVX * dt; camZ += swimVZ * dt;
 
         // ---- 竖直 ----
@@ -1410,6 +1461,35 @@
         if (sp > spdMax) { boat.vx *= spdMax / sp; boat.vz *= spdMax / sp; }
         boat.vx *= (1 - 0.5 * dt); boat.vz *= (1 - 0.5 * dt);
         boat.x += boat.vx * dt; boat.z += boat.vz * dt;
+        // 龙卷风：连人带船一起被卷上天。
+        // 船平时被硬钉在波面上（f.y = 水面 + 0.25），通用浮力抬不动它，
+        // 所以船的吸附与抬升必须在这里单独处理，否则坐在船上的人永远吸不起来。
+        let inTor = false;
+        for (const td of tornados) {
+          const grow = Math.min(1, (curT - td.t0) / 2.5);
+          const R = td.r * grow;
+          const dx = boat.x - td.x, dz = boat.z - td.z;
+          const d = Math.hypot(dx, dz);
+          if (d >= R || d <= 0.01) continue;
+          inTor = true;
+          const k = 1 - d / R;
+          const inward = k * 62;                       // 向心：被吸进风柱
+          const swirl = Math.min(k * 85, d * 2.4);     // 切向：绕着风柱打转
+          boat.x += (-dx / d * inward - dz / d * swirl) * dt;
+          boat.z += (-dz / d * inward + dx / d * swirl) * dt;
+          boat.yawBoat += (0.8 + k * 1.5) * dt;        // 船身被风拧着转
+          boat.liftVy = Math.max(boat.liftVy, (0.5 + 0.5 * k) * 58);
+          const sy2 = k * 0.7 * dt;                    // 视角跟着转，但可用鼠标自由看四周
+          yawT += sy2; yaw += sy2;
+        }
+        if (inTor) {
+          boat.lift += boat.liftVy * dt;
+          if (boat.lift > TORNADO_EJECT_H) boat.lift = TORNADO_EJECT_H;   // 与游泳被卷起的高度一致
+        } else if (boat.lift > 0) {
+          boat.liftVy -= G * 1.5 * dt;                 // 脱离风柱 → 连船带人一起掉回海里
+          boat.lift += boat.liftVy * dt;
+          if (boat.lift <= 0) { boat.lift = 0; boat.liftVy = 0; }
+        }
         boat.ry = boat.yawBoat;
         // 转向只给视角一个「叠加」：不锁死视角，玩家仍可用鼠标自由转头看四周
         const dYaw = boat.yawBoat - (boat.prevYawBoat === undefined ? boat.yawBoat : boat.prevYawBoat);
@@ -1418,7 +1498,7 @@
         // 相机在船尾上方偏后，能看到整艘木筏
         camX = boat.x - Math.sin(boat.yawBoat) * 3;
         camZ = boat.z + Math.cos(boat.yawBoat) * 3;
-        camY = waveHeight(boat.x, boat.z, curT) + 10.2;   // 乘木筏时视角抬高（1.7 → 3.4 → 10.2）
+        camY = waveHeight(boat.x, boat.z, curT) + 10.2 + boat.lift;   // 乘木筏时视角抬高（1.7 → 3.4 → 10.2）+ 被龙卷风卷起的高度
         camVy = 0; swimOff = 0;
         underwater = false; submergeAmt = 0;
         // 脱离
@@ -1973,14 +2053,14 @@
           if (camState !== 'swim') {
             // 非游泳：清掉游泳状态（竖直运动已在 updateSwim 内处理）
             camVy = 0;
-            swimVX = 0; swimVZ = 0;
+            swimVX = 0; swimVZ = 0; ejectT = 0;
             swimOff = 0; swimVy = 0; airbornePrev = false;
             underwater = false; submergeAmt = 0; wasSubmerged = false;
             curRoll += (0 - curRoll) * Math.min(1, dt * 5);
           }
         } else {
           curRoll += (0 - curRoll) * Math.min(1, dt * 5);
-          swimVX = 0; swimVZ = 0; swimOff = 0; swimVy = 0; airbornePrev = false;
+          swimVX = 0; swimVZ = 0; ejectT = 0; swimOff = 0; swimVy = 0; airbornePrev = false;
           underwater = false; submergeAmt = 0; wasSubmerged = false;
           // 轨道视角：洋流会把物体慢慢带走，定期把漂远的重新放回（遗迹锚定不动，不处理）
           for (const f of floaters) {
@@ -2021,7 +2101,7 @@
           const sub = surfaceY - f.y;         // >0 表示没入水下，<0 表示浮在水上
           const under = sub > 0;
           if (f.type === 'ruin') continue;    // 遗迹长在海底，不动、不随波起伏
-          if (f.type === 'boat') { f.y = surfaceY + 0.25; continue; }   // 木筏浮在水面，漂移由驾驶控制
+          if (f.type === 'boat') { f.y = surfaceY + 0.25 + (f.lift || 0); continue; }   // 木筏浮在水面，漂移由驾驶控制（被龙卷风卷起时叠加上抬升高度）
           if (sub < -FREEFALL_GAP) {
             // 明显高于水面（真实下落 / 被抛起）→ 自由落体
             f.vy -= G * dt;
