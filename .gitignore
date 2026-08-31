@@ -1,5 +1,7 @@
 # 临时 / 调试文件（非项目内容）
 _check*.js
+_sim.js
+_synccheck.js
 _g.html
 *.ps1
 

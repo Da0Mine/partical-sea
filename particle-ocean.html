@@ -76,6 +76,162 @@
   .tool-btn.off { opacity: 0.4; }
   .tool-btn.off .wave1, .tool-btn.off .wave2 { display: none; }
   .tool-btn.off .slash { display: block !important; }
+
+  /* ---------- 操作指南：右上角 ? 图标唤出（黑底遮罩 + 白色线稿图示）---------- */
+  #guideOverlay {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
+    gap: 14px; padding: 24px;
+    font-family: system-ui, "PingFang SC", sans-serif; color: #dfe8ff;
+    opacity: 0; visibility: hidden; transition: opacity .28s ease, visibility .28s;
+    pointer-events: none;                        /* 不挡住后面的实景与操作 */
+  }
+  #guideOverlay.show { opacity: 1; visibility: visible; }
+  .guide-close {
+    position: absolute; top: 20px; right: 20px; width: 36px; height: 36px; padding: 0; z-index: 47;
+    display: flex; align-items: center; justify-content: center; pointer-events: auto;
+    background: rgba(5,9,18,0.72); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 9px; color: rgba(255,255,255,0.82); cursor: pointer;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: background .2s ease, border-color .2s ease, color .2s ease;
+  }
+  .guide-close:hover { background: rgba(127,216,255,0.2); border-color: rgba(127,216,255,0.55); color: #cdefff; }
+  .guide-close:focus-visible, .guide-nav:focus-visible { outline: 2px solid #7fd8ff; outline-offset: 3px; }
+  /* 图示浮在实景之上做演示：加一块深色圆角背景遮罩，保证白色线稿在亮处也清晰 */
+  .guide-fig {
+    margin: 0; pointer-events: none;
+    padding: 10px 14px;
+    background: rgba(5,9,18,0.55);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 14px;
+  }
+  .guide-fig svg {
+    width: 186px; height: 140px; display: block;
+    fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    filter: drop-shadow(0 2px 10px rgba(0,0,0,0.9));
+  }
+  .guide-fig .dim { stroke: rgba(255,255,255,0.34); }
+  .guide-fig .dashed { stroke-dasharray: 4 6; }
+  .guide-fig .acc { stroke: #7fd8ff; }
+  .guide-fig .kc-t {
+    stroke: none; fill: #fff; font-family: system-ui, sans-serif; font-size: 12px;
+    font-weight: 600; letter-spacing: .04em; text-anchor: middle; dominant-baseline: central;
+  }
+  /* 只有文字这块有圆角矩形遮罩背景来突出显示 */
+  .guide-card {
+    position: relative; z-index: 47; pointer-events: auto; width: min(430px, 88vw); padding: 17px 24px 14px;
+    background: rgba(5,9,18,0.86);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.13); border-radius: 16px;
+    box-shadow: 0 10px 34px rgba(0,0,0,0.5);
+    text-align: left;
+  }
+  .guide-big {
+    font-size: 24px; font-weight: 600; letter-spacing: .01em; line-height: 1.55;
+    color: #fff; margin-bottom: 8px;
+  }
+  /* 重点（按键名）放大并高亮成强调色的键帽 */
+  .guide-big .k {
+    display: inline-block; padding: 2px 9px; margin: 0 3px;
+    font-size: .8em; font-weight: 600; vertical-align: 2px;
+    border: 1px solid rgba(127,216,255,0.6); border-radius: 7px;
+    background: rgba(127,216,255,0.16); color: #cdefff;
+  }
+  .guide-note { font-size: 14px; line-height: 1.65; color: rgba(223,232,255,0.68); }
+  .guide-foot {
+    display: flex; align-items: center; justify-content: flex-start; gap: 16px;
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.09);
+  }
+  .guide-nav {
+    width: 28px; height: 28px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 50%; color: rgba(255,255,255,0.8); cursor: pointer;
+    transition: background .2s ease, border-color .2s ease, color .2s ease;
+  }
+  .guide-nav:hover { background: rgba(127,216,255,0.18); border-color: rgba(127,216,255,0.5); color: #cdefff; }
+  .guide-nav:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+  .guide-dots { display: flex; gap: 8px; }
+  .guide-dot {
+    width: 6px; height: 6px; padding: 0; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.34); background: transparent; cursor: pointer;
+    transition: background .22s ease, border-color .22s ease, transform .22s ease;
+  }
+  .guide-dot.on { background: #7fd8ff; border-color: #7fd8ff; transform: scale(1.35); }
+  .guide-hint {
+    margin: 0; text-align: left; font-size: 12px;
+    color: rgba(223,232,255,0.6); letter-spacing: .04em;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.85);
+  }
+  /* 引导遮罩：半透明黑色盖住全屏，拦截其他点击，只留高亮框区域可点 */
+  .guide-mask {
+    position: fixed; inset: 0; z-index: 44; pointer-events: none;
+    background: rgba(0,0,0,0.55);
+  }
+  /* 引导高亮框：白色圆角矩形框住屏幕上的某个 UI，脉冲提示用户去点它 */
+  .guide-hl {
+    position: fixed; z-index: 45; pointer-events: none;
+    border: 2.5px solid #fff; border-radius: 12px;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.45), 0 0 18px rgba(127,216,255,0.55);
+    animation: gHl 1.5s ease-in-out infinite;
+  }
+  @keyframes gHl { 0%, 100% { box-shadow: 0 0 0 2px rgba(0,0,0,0.45), 0 0 10px rgba(127,216,255,0.4); } 50% { box-shadow: 0 0 0 2px rgba(0,0,0,0.45), 0 0 26px rgba(127,216,255,0.95); } }
+  /* 引导箭头：平铺海面的路线指引，不上下浮动 */
+  #guideArrows { position: fixed; inset: 0; z-index: 45; pointer-events: none; }
+  .guide-arrow-item {
+    position: absolute; width: 34px; height: 34px;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.6));
+  }
+  .guide-arrow-item svg { display: block; transition: transform .15s linear; }
+  .guide-arrow-turn svg { stroke: #ffd24a; }   /* 前方转向提示箭头用醒目黄色 */
+  /* 等待用户点击的提示气泡 */
+  .guide-wait {
+    position: fixed; z-index: 46; pointer-events: none;
+    padding: 6px 13px; border-radius: 9px; white-space: nowrap;
+    background: rgba(5,9,18,0.82); border: 1px solid rgba(127,216,255,0.5);
+    color: #cdefff; font-size: 13px; font-family: system-ui, "PingFang SC", sans-serif;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    animation: gWait 1.4s ease-in-out infinite;
+  }
+  @keyframes gWait { 0%, 100% { opacity: .82; } 50% { opacity: 1; } }
+  /* 图示动画：白色线稿上的基础演示动效 */
+  @keyframes gSpin { to { transform: rotate(360deg); } }
+  @keyframes gPulse { 0% { opacity: .8; transform: scale(.55); } 100% { opacity: 0; transform: scale(1.55); } }
+  @keyframes gRise { 0%, 100% { transform: translateY(7px); } 50% { transform: translateY(-7px); } }
+  @keyframes gWave { to { transform: translateX(-40px); } }
+  @keyframes gDash { to { stroke-dashoffset: -48; } }
+  @keyframes gShoot { 0% { opacity: 0; transform: translate(0,0); } 14% { opacity: 1; } 100% { opacity: 0; transform: translate(52px,-30px); } }
+  @keyframes gFade { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+  @keyframes gTurn { 0%, 100% { transform: translateX(-2px) rotate(-2deg); } 50% { transform: translateX(2px) rotate(2deg); } }
+  .a-spin  { transform-box: view-box; animation: gSpin 8s linear infinite; }
+  .a-pulse { transform-box: view-box; animation: gPulse 1.5s ease-out infinite; }
+  .a-rise  { animation: gRise 3.2s ease-in-out infinite; }
+  .a-wave  { animation: gWave 2.6s linear infinite; }
+  .a-dash  { stroke-dasharray: 5 7; animation: gDash 1.7s linear infinite; }
+  .a-shoot { transform-box: view-box; animation: gShoot 1.9s ease-out infinite; }
+  .a-fade  { animation: gFade 1.4s ease-in-out infinite; }
+  .a-turn  { transform-box: view-box; animation: gTurn 3.4s ease-in-out infinite; }
+  .a-zoom  { transform-box: view-box; animation: gZoom 2.4s ease-in-out infinite; }
+  .a-drag  { transform-box: view-box; animation: gDrag 2.8s ease-in-out infinite; }
+  @keyframes gZoom {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.35); }
+  }
+  @keyframes gDrag {
+    0%, 100% { transform: translate(0, 0); }
+    30%      { transform: translate(12px, -8px); }
+    60%      { transform: translate(-8px, 6px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .a-spin, .a-pulse, .a-rise, .a-wave, .a-dash, .a-shoot, .a-fade, .a-turn,
+    .a-zoom, .a-drag,
+    .guide-hl, .guide-arrow, .guide-wait { animation: none; }
+  }
+  @media (max-width: 720px) {
+    .guide-fig svg { width: 148px; height: 111px; }
+    .guide-big { font-size: 20px; }
+    .guide-note { font-size: 13px; }
+  }
 </style>
 </head>
 <body>
@@ -98,6 +254,13 @@
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
       </svg>
     </div>
+    <div class="tool-btn" id="guideBtn" title="操作指南">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M9.3 9.5a2.75 2.75 0 1 1 3.9 2.5c-.75.36-1.2.98-1.2 1.8"></path>
+        <path d="M12 17.4h.01"></path>
+      </svg>
+    </div>
   </div>
   <div id="reticle"></div>
   <div id="eventTag"></div>
@@ -112,6 +275,33 @@
     <div class="panel-row">
       <button id="btnTor" class="panel-btn danger">召唤龙卷风</button>
     </div>
+  </div>
+
+  <div id="guideOverlay" role="dialog" aria-labelledby="guideTitle" aria-label="操作指南">
+    <div class="guide-mask" id="guideMask" hidden></div>
+    <button class="guide-close" id="guideClose" aria-label="关闭指南">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 6 6 18M6 6l12 12"></path>
+      </svg>
+    </button>
+    <figure class="guide-fig" id="guideFig"></figure>
+    <div class="guide-card">
+      <p class="guide-big" id="guideTitle"></p>
+      <p class="guide-note" id="guideDesc"></p>
+      <div class="guide-foot">
+        <button class="guide-nav" id="guidePrev" aria-label="上一页">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+        </button>
+        <div class="guide-dots" id="guideDots"></div>
+        <button class="guide-nav" id="guideNext" aria-label="下一页">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"></path></svg>
+        </button>
+      </div>
+    </div>
+    <p class="guide-hint">← → 翻页 · Esc 关闭</p>
+    <div class="guide-hl" id="guideHl" hidden></div>
+    <div id="guideArrows"></div>
+    <div class="guide-wait" id="guideWait" hidden></div>
   </div>
 
   <script>
@@ -179,6 +369,21 @@
 
       // 海况：普通大浪（随机刷新）/ 巨浪（手动召唤）/ 海啸（灾难级）/ 超大海啸（海啸 3 倍）
       // 浪高直接叠加进波函数，所以浪本身就是一堵会推进的水墙，会把人和物体一起推走。
+      // 浪涌统一来向：所有大浪 / 海啸都沿「整片海的主涌动方向」推进，不再每次随机换方向。
+      // 方向由 waveHeightBase 的 4 条正弦分量按振幅加权求和得到：
+      // sin(k·r + ωt) 的传播方向是 -k̂，sin(k·r - ωt) 是 +k̂ —— 也就是肉眼看海在往哪边涌。
+      const SURGE_DIR = (function () {
+        const comps = [
+          { dx: -1, dz: 0, w: 0.55 },                          // sin(x*0.08 + t*0.9)
+          { dx: 0, dz: -1, w: 0.45 },                          // sin(z*0.12 + t*0.7)
+          { dx: -Math.SQRT1_2, dz: -Math.SQRT1_2, w: 0.35 },   // sin((x+z)*0.06 + t*1.15)
+          { dx: Math.SQRT1_2, dz: -Math.SQRT1_2, w: 0.25 }     // sin((x-z)*0.10 - t*0.6)
+        ];
+        let sx = 0, sz = 0;
+        for (const c of comps) { sx += c.dx * c.w; sz += c.dz * c.w; }
+        const m = Math.hypot(sx, sz) || 1;
+        return { dx: sx / m, dz: sz / m };
+      })();
       const SURGE_KIND = {
         big:     { amp: AMP * 1.15 + 3.5, width: 16, speed: 28, dist: 320, msg: '大浪来袭' },
         huge:    { amp: AMP * 2.6 + 11,   width: 26, speed: 44, dist: 420, msg: '巨 浪 来 袭' },
@@ -188,12 +393,15 @@
       // 海况衰减：浪把人往前卷出这个距离后就开始平息。
       // 没有这个机制时，超大海啸的推力大到能一直把人顶在浪锋上，
       // 浪永远超不过玩家 → 永远不会被回收 → 人被无限卷着跑。
-      const SURGE_DRAG_LIMIT = 600;      // 被同一道浪卷着跑了多远后开始平息
-      const SURGE_FADE_RATE = 0.32;      // 平息速度：fade 每秒衰减量（约 3 秒彻底平息）
+      const SURGE_DRAG_LIMIT = 900;      // 被同一道浪卷着跑了多远后开始平息
+      const SURGE_MEGA_PUSH = 450;       // 超大海啸的推力封顶（普通海况 / 普通海啸不设限，保持原样）
+      // 平息总时长：真实海啸波长极长，水位涨上来之后会「维持很久、再慢慢退去」，
+      // 绝不是几秒就消失。这里用缓入曲线退水 —— 刚触发时退得极慢（水还停在涨上来的高度），
+      // 之后才逐渐加快，整体持续二十多秒。
+      const SURGE_FADE_TIME = 26;
       function spawnSurge(kind) {
         const cfg = SURGE_KIND[kind] || SURGE_KIND.big;
-        const ang = Math.random() * 6.2832;
-        const dx = Math.cos(ang), dz = Math.sin(ang);
+        const dx = SURGE_DIR.dx, dz = SURGE_DIR.dz;   // 统一来向：沿海浪的主涌动方向打来
         surges.push({
           kind, dx, dz,
           p0: (camX * dx + camZ * dz) - cfg.dist,   // 从玩家身后沿传播方向打来
@@ -203,6 +411,7 @@
           width: cfg.width,
           drag: 0,            // 已经把人往前卷了多远
           fade: 1,            // 平息系数：浪高与推力都乘它，衰减到 0 就撤掉
+          fadeT: 0,           // 进入平息后经过的时间
           lastProj: undefined // 上一帧玩家在传播方向上的投影位置（用于累计 drag）
         });
         showEvent(cfg.msg);
@@ -226,7 +435,9 @@
           const sg = surges[i];
           const u = (px * sg.dx + pz * sg.dz - (sg.p0 + sg.speed * (curT - sg.t0))) / sg.width;
           if (u < -2.2 || u > 2.2) continue;
-          const push = sg.amp * sg.fade * (sg.kind === 'mega' ? 5.0 : sg.kind === 'tsunami' ? 3.6 : sg.kind === 'huge' ? 2.2 : 1.1) * Math.exp(-u * u);
+          // 普通大浪 / 巨浪 / 海啸保持原来的推力，只有超大海啸封顶到 450
+          let push = sg.amp * sg.fade * (sg.kind === 'mega' ? 5.0 : sg.kind === 'tsunami' ? 3.6 : sg.kind === 'huge' ? 2.2 : 1.1) * Math.exp(-u * u);
+          if (sg.kind === 'mega' && push > SURGE_MEGA_PUSH) push = SURGE_MEGA_PUSH;
           pushTmp.x += sg.dx * push; pushTmp.z += sg.dz * push;
         }
         return pushTmp;
@@ -235,9 +446,10 @@
       function updateSurges(dt) {
         if (curT > nextBigT) { spawnSurge('big'); nextBigT = curT + 32 + Math.random() * 46; }
         // 稀有事件：海啸 / 超大海啸 / 龙卷风。同一时间只出现一种（场上还有稀有事件就顺延）
+        // 引导播放时暂停稀有事件触发，播放完才开始
         const rareActive = surges.some(sg => sg.kind === 'tsunami' || sg.kind === 'mega')
           || tornados.length > 0;
-        if (curT > nextRareT && !rareActive) {
+        if (curT > nextRareT && !rareActive && !guideOpen) {
           const r = Math.random();
           if (r < 0.30) spawnSurge('mega');       // 超大海啸：约 30% 概率
           else if (r < 0.58) spawnSurge('tsunami');
@@ -256,10 +468,15 @@
             if (adv > 0) sg.drag += adv;
           }
           sg.lastProj = proj;
-          // 卷够远了 → 渐渐平息：浪高和推力一起衰减，衰减完直接撤掉。
-          // 这样海啸一定会结束，不会再出现被无限卷着跑的死循环
-          if (sg.drag > SURGE_DRAG_LIMIT) sg.fade -= SURGE_FADE_RATE * dt;
-          if (sg.fade <= 0) { surges.splice(i, 1); continue; }
+          // 卷够远了 → 开始退水：浪高和推力一起衰减，衰减完直接撤掉。
+          // 这样海啸一定会结束，不会再出现被无限卷着跑的死循环。
+          // 退水用缓入曲线：刚触发时退得极慢（水位还停在涨上来的高度），之后才逐渐落下去
+          if (sg.drag > SURGE_DRAG_LIMIT) {
+            sg.fadeT += dt;
+            const p = Math.min(1, sg.fadeT / SURGE_FADE_TIME);
+            sg.fade = 1 - p * p;
+            if (sg.fade <= 0) { surges.splice(i, 1); continue; }
+          }
           if (front - proj > sg.width * 3 + 260) surges.splice(i, 1);
         }
         updateTornados(dt);
@@ -269,15 +486,23 @@
       // 生成后固定在世界坐标不再移动；大小远超大楼；出场由小到大，带旋转粒子与海面水雾。
       // 风柱里还卷着一批「从海里被吸出来」的方块碎片：绕中轴高速旋转、螺旋上升，到顶被甩出去。
       // 玩家被卷起时不做高度限制，而是越转越高、旋转半径越来越大，到约大楼三倍高被甩飞出去。
-      const TORNADO_EJECT_H = 500;
-      // 甩飞参数：初速要远大于游泳速度，而且甩出去后必须按「抛体飞行」处理一段时间。
-      // 否则 updateSwim 的水平水阻（SWIM_DRAG）会在零点几秒内把速度拉回正常游速，
-      // 人刚离开风柱就停在原地，根本飞不远。
-      const TORNADO_EJECT_VR = 220;      // 甩飞初速：沿半径向外
-      const TORNADO_EJECT_VT = 300;      // 甩飞初速：沿切线
-      const TORNADO_EJECT_VY = 26;       // 甩飞初速：向上，形成一个抛出弧线
-      const TORNADO_EJECT_T = 2.4;       // 抛飞持续时长：期间不受游泳操控/洋流/浪涌，只有极小空气阻力
-      let ejectT = 0;                    // >0 表示正处于被甩飞的抛体飞行中
+      const TORNADO_EJECT_H = 800;           // 脱离高度：先慢慢卷高再甩出去
+      // 起旋：被卷住之后转速与上升速度都从 0 平滑加满，不是一进去就高速旋转。
+      // 脱离条件必须同时满足「已经真的转到甩出速度」+「卷到脱离高度」，
+      // 脱离时沿的是此刻的真实速度（切向+径向），不做凭空加速。
+      // 全程加速：起旋时长直接拉满到整个上升过程，0 → 21 秒转速与上升速度一路平滑加满，
+      // 不存在「先加速完、再匀速爬升」的分段感
+      const TORNADO_SPINUP_T = 21.0;         // 起旋时长 = 整个上升过程（0→21 秒持续加速）
+      // 上升速度按「第 21 秒恰好到达脱离高度」反推：
+      // y(t) = ∫₀ᵗ L·(τ/T)² dτ = L·t³/(3T²)，令 y(T) = EJECT_H 得 L = 3·EJECT_H/T ≈ 114.3
+      const TORNADO_LIFT_MAX = 114.3;        // 满速时的上升速度（第 21 秒刚好到顶）
+      const TORNADO_EJECT_VT = 300;          // 甩出速度（切向）：必须真的转到这个速度才脱离
+      const TORNADO_EJECT_AIR_DRAG = 0.35;   // 甩出后在空中的空气阻力（远小于水的阻力）
+      // 玩家专属吸附半径 = 风柱半径 × 下面这个值。
+      // 只对玩家生效：物体 / 船的吸附半径、以及漏斗的视觉大小都还是风柱半径本身，不受影响。
+      const TORNADO_PLAYER_REACH = 2.2;      // 风柱半径 200 → 玩家在约 440 范围内就会被吸过去
+      const TORNADO_PULL_IN_MAX = 55;        // 风柱外把玩家往里拖的最大速度（还没起旋，只是被慢慢吸过去）
+      let flinging = false;                  // 被甩出后正在空中做抛体运动
       function resetDebris(d, td) {
         d.ang = Math.random() * 6.2832;
         d.h = -8 - Math.random() * 16;             // 从水面以下开始 → 视觉上就是「被从海里吸出来」
@@ -319,16 +544,17 @@
       function spawnTornado() {
         const ang = Math.random() * 6.2832;
         // 生成距离要略大于风柱半径，免得玩家一出现就被堵在风眼里
-        const dist = 130 + Math.random() * 80;     // 在玩家周围固定位置出现
+        const dist = 240 + Math.random() * 110;    // 在玩家周围固定位置出现（需 > 风柱半径 200）
         const td = {
           x: camX + Math.cos(ang) * dist,
           z: camZ + Math.sin(ang) * dist,
           t0: curT, life: 45,
-          height: 760,                             // 比大楼（110~220）高得多
-          r: 116,                                  // 风柱半径（吸附半径，比原来大一倍）
+          height: 1000,                            // 比大楼（110~220）高得多（要能装下 800 的脱离高度）
+          r: 200,                                  // 风柱半径 = 吸附半径：物体 / 玩家 / 船进入这个范围就会被卷进去
+                                                   // （渲染的漏斗宽度全部由它推导，改这里视觉会同步放大）
           debris: []
         };
-        for (let i = 0; i < 22; i++) td.debris.push(resetDebris({}, td));
+        for (let i = 0; i < 30; i++) td.debris.push(resetDebris({}, td));   // 漏斗变大，碎片数量同步补足密度
         tornados.push(td);
         showEvent('龙 卷 风 来 袭');
       }
@@ -374,44 +600,60 @@
           // 玩家：被慢慢吸向风柱，同时绕着它旋转上升；视角叠加旋转但玩家可以自由转头
           // 开船时不走这里（相机由 updateBoat 接管），船的吸附在 updateBoat 里单独处理；
           // 甩飞过程中也不再被风柱抓回去，让人能真正飞出去
-          if (camMode === 'fpv' && !driving && ejectT <= 0) {
+          if (camMode === 'fpv' && !driving && !flinging) {
             const dx = camX - td.x, dz = camZ - td.z;
             const d = Math.hypot(dx, dz);
-            if (d < R && d > 0.01) {
-              const k = 1 - d / R;
+            // 玩家吸附半径比风柱本身大得多：站得远也会被吸过去（物体 / 船 / 视觉半径不受影响）
+            const RP = R * TORNADO_PLAYER_REACH;
+            if (d < RP && d > 0.01) {
               const swim = camState === 'swim';
+              const inFunnel = d < R;                          // 是否已真正进入风柱内部
+              // ---- 起旋：只有进入风柱之后才开始加速，转速从 0 平滑加满（缓入曲线）----
+              td.grabT = inFunnel ? (td.grabT || 0) + dt : 0;
+              const spn = Math.min(1, td.grabT / TORNADO_SPINUP_T);
+              const ease = spn * spn;                          // 起初很慢，越转越快
               // 越被卷得越高，向心力越弱并逐渐转为离心 → 旋转半径越来越大
               const lift = camY - (waveHeight(td.x, td.z, curT) + SWIM_EYE_H);
               const tH = Math.min(1, Math.max(0, lift / TORNADO_EJECT_H));
               // 旋转半径随高度张开：低空贴着风眼转，越卷越高被甩得越外圈
               const targetR = R * (swim ? 0.12 + 0.7 * tH : 0.15 + 0.35 * tH);
-              const radial = (targetR - d) * 1.3;               // 正=往外推，负=往里吸
-              // 越被卷得越高转得越快：切向速度随高度显著递增
-              const swirl = Math.min((swim ? 74 : 38) * (0.35 + 0.65 * k) * (1 + 2.2 * tH), d * 3.4);
-              camX += (dx / d * radial - dz / d * swirl) * dt;
-              camZ += (dz / d * radial + dx / d * swirl) * dt;
-              // 视角只是叠加旋转，不锁死：玩家仍可用鼠标自由看四周
-              const swirlYaw = k * (swim ? 0.8 : 0.45) * dt;
+              // 吸附：风柱外只有一股温和的横向拖曳（限幅，越靠近越明显，但不会一进来就被猛拽）；
+              // 进入风柱后才随起旋逐渐加大，转速上来之后才越吸越紧
+              let radial = (targetR - d) * 1.3 * (inFunnel ? (0.2 + 0.8 * ease) : 0.25);
+              if (!inFunnel && radial < -TORNADO_PULL_IN_MAX) radial = -TORNADO_PULL_IN_MAX;
+              // 切向速度：随起旋进度从 0 平滑加到甩出速度（越卷越高转得越快）
+              const vt = TORNADO_EJECT_VT * ease * (0.55 + 0.45 * tH);
+              // 这一刻的真实水平速度（切向 + 径向）—— 脱离时就是沿它飞出去
+              const vX = (dx / d) * radial + (-dz / d) * vt;
+              const vZ = (dz / d) * radial + (dx / d) * vt;
+              camX += vX * dt; camZ += vZ * dt;
+              // 视角按真实角速度叠加旋转（同样随起旋加速），不锁死：仍可用鼠标自由看四周
+              const omega = vt / Math.max(1, d);
+              const swirlYaw = Math.min(omega, 1.2) * (swim ? 1.0 : 0.55) * dt;
               yawT += swirlYaw; yaw += swirlYaw;
-              if (swim) {
+              if (swim && inFunnel) {              // 风柱外只被横向吸过去，不旋转、也不上升
                 standY = -1e9;                     // 被卷起时脱离楼顶支撑
-                if (lift < TORNADO_EJECT_H) {
+                const liftRate = TORNADO_LIFT_MAX * ease;      // 上升速度同样随起旋平滑增加
+                // 必须「卷到脱离高度」且「已经真的转到甩出速度」才脱离：
+                // 速度不够就继续卷着转，绝不凭空给人加一个速度
+                if (lift < TORNADO_EJECT_H || vt < TORNADO_EJECT_VT * 0.95) {
                   td.ejected = false;              // 掉回高度以下 → 可以再被卷上去一次
-                  camY += (0.45 + 0.55 * k) * 52 * dt;   // 不限高，越卷越高
-                  swimVy = Math.max(swimVy, 5);
+                  camY += liftRate * dt;
+                  swimVy = Math.max(swimVy, liftRate * 0.35);
                 } else if (!td.ejected) {
-                  // 卷到约大楼三倍高 → 沿切线 + 向外甩飞出去，之后自由落体。
-                  // 初速远大于游泳速度，并在 TORNADO_EJECT_T 内按抛体飞行处理，这样才能真被甩到远处
+                  // 真转到了甩出速度、也到了脱离高度 → 沿此刻真实速度飞出去，之后走自由抛体
                   td.ejected = true;
-                  swimVX = (dx / d) * TORNADO_EJECT_VR + (-dz / d) * TORNADO_EJECT_VT;
-                  swimVZ = (dz / d) * TORNADO_EJECT_VR + (dx / d) * TORNADO_EJECT_VT;
-                  swimVy = TORNADO_EJECT_VY;
-                  camVy = swimVy;
-                  ejectT = TORNADO_EJECT_T;
+                  swimVX = vX;
+                  swimVZ = vZ;
+                  swimVy = camVy;                  // 竖直沿用当前速度，不额外硬加
+                  flinging = true;
+                  td.grabT = 0;                    // 起旋计时清零：万一又落回风柱内，也要重新慢慢加速
                 }
                 swimOff = camY - (waveHeight(camX, camZ, curT) + SWIM_EYE_H);
                 camVy = swimVy;
               }
+            } else {
+              td.grabT = 0;                        // 离开风柱 → 起旋进度清零，下次重新慢慢加速
             }
           }
         }
@@ -801,6 +1043,10 @@
         collectFx.push({ sx: c ? c.sx : cx, sy: c ? c.sy : cy, r, t0: curT });
         Sfx.ping(1.2, 1560);                    // 清脆的收集音
         floaters.splice(floaters.indexOf(f), 1);
+        // 收集球引导页：收集到球后自动跳到下一步
+        if (guideOpen && GUIDE[guideIdx] && GUIDE[guideIdx].arrow) {
+          showGuide(guideIdx + 1);
+        }
         return true;
       }
       function updateCollectUI() {
@@ -831,6 +1077,7 @@
           x: camX + Math.cos(ang) * r, z: camZ + Math.sin(ang) * r,
           y: 0, vx: 0, vz: 0,
           lift: 0, liftVy: 0,          // 被龙卷风卷起的高度与竖直速度（0 = 正常浮在水面）
+          spinT: 0,                    // 被卷住的起旋计时（与人的起旋一致，慢慢加速）
           yawBoat: ang, prevYawBoat: ang, ry: ang, rx: 0,
           sx: 0, sy: 0, state: 'free', wasSub: false, hover: false, flash: 0
         });
@@ -991,8 +1238,8 @@
       const AIR_OFF = 2.2;              // 离水面超过这个高度就按重力自由落体处理
       const FALL_G_MUL = 1.8;           // 空中下落的重力倍率（与「取消飞行」同一下落模型）
       // 下落是「越来越快」的加速运动。终端速度只是极端高度的兜底：
-      // 从最高的大楼（220）掉到水面约 140、被龙卷风卷到最高处再落下约 190，
-      // 都仍低于上限，所以整段下落都在加速，不会中途变匀速。
+      // 从最高的大楼（220）掉到水面约 140，全程都还在加速；
+      // 只有被龙卷风卷到 800 的高空再落下时才会触到上限，最后一段转为匀速。
       const FALL_TERMINAL = 225;
 
       let camState = 'fly';             // 'fly' 飞行 | 'swim' 游泳
@@ -1214,6 +1461,8 @@
       const keys = {};
       window.addEventListener('keydown', e => {
         const k = e.key.toLowerCase();
+        // 指南打开时：方向键用于翻页（在另一个监听中处理），WASD/空格/Shift 仍然响应
+        if (guideOpen && (k === 'arrowleft' || k === 'arrowright' || k === 'arrowup' || k === 'arrowdown')) return;
         if (k === 'w' || k === 'a' || k === 's' || k === 'd' || k === ' ' || k === 'shift' || k === 'f' || k === 'c') {
           keys[k] = true;
           if (k === ' ') e.preventDefault();   // 空格防止页面滚动
@@ -1328,13 +1577,15 @@
         tvx += sp2.x * 0.5; tvz += sp2.z * 0.5;
 
         const k = Math.min(1, SWIM_ACCEL * dt);
-        if (ejectT > 0) {
-          // 被龙卷风甩飞中：按抛体飞行处理，不接受游泳操控 / 洋流 / 浪涌，
-          // 只受很小的空气阻力 —— 这样甩出去的高速能保持住，人真的会被甩到远处
-          ejectT -= dt;
-          swimVX *= (1 - 0.18 * dt);
-          swimVZ *= (1 - 0.18 * dt);
+        // 被甩出后仍在空中 → 抛体运动：水平只受空气阻力，
+        // 竖直同时由下面的重力自由落体计算，两者是同时进行的（不是先水平再下落）。
+        // 这里刻意不用计时器截断：速度连续衰减，轨迹才是一条平滑的抛物线，
+        // 不会出现「先平着飞一段、然后突然垂直掉下去」的折线。
+        if (flinging && swimOff > AIR_OFF) {
+          swimVX *= (1 - TORNADO_EJECT_AIR_DRAG * dt);
+          swimVZ *= (1 - TORNADO_EJECT_AIR_DRAG * dt);
         } else {
+          flinging = false;                  // 落水后回到正常游泳
           swimVX += (tvx - swimVX) * k;
           swimVZ += (tvz - swimVZ) * k;
           swimVX *= (1 - SWIM_DRAG * dt);
@@ -1472,16 +1723,21 @@
           const d = Math.hypot(dx, dz);
           if (d >= R || d <= 0.01) continue;
           inTor = true;
+          // 起旋：和人一样被卷住后慢慢加速，不是一进去就被瞬间拉起来
+          boat.spinT = (boat.spinT || 0) + dt;
+          const spn = Math.min(1, boat.spinT / TORNADO_SPINUP_T);
+          const ease = spn * spn;
           const k = 1 - d / R;
-          const inward = k * 62;                       // 向心：被吸进风柱
-          const swirl = Math.min(k * 85, d * 2.4);     // 切向：绕着风柱打转
+          const inward = k * 62 * ease;                       // 向心：被吸进风柱
+          const swirl = Math.min(k * 85 * ease, d * 2.4);     // 切向：绕着风柱打转
           boat.x += (-dx / d * inward - dz / d * swirl) * dt;
           boat.z += (-dz / d * inward + dx / d * swirl) * dt;
-          boat.yawBoat += (0.8 + k * 1.5) * dt;        // 船身被风拧着转
-          boat.liftVy = Math.max(boat.liftVy, (0.5 + 0.5 * k) * 58);
-          const sy2 = k * 0.7 * dt;                    // 视角跟着转，但可用鼠标自由看四周
+          boat.yawBoat += (0.8 + k * 1.5) * ease * dt;        // 船身被风拧着转
+          boat.liftVy = Math.max(boat.liftVy, (0.5 + 0.5 * k) * TORNADO_LIFT_MAX * ease);
+          const sy2 = Math.min(swirl / Math.max(1, d), 1.0) * dt;   // 视角跟着转，但可用鼠标自由看四周
           yawT += sy2; yaw += sy2;
         }
+        if (!inTor) boat.spinT = 0;                           // 离开风柱 → 起旋进度清零
         if (inTor) {
           boat.lift += boat.liftVy * dt;
           if (boat.lift > TORNADO_EJECT_H) boat.lift = TORNADO_EJECT_H;   // 与游泳被卷起的高度一致
@@ -2053,14 +2309,14 @@
           if (camState !== 'swim') {
             // 非游泳：清掉游泳状态（竖直运动已在 updateSwim 内处理）
             camVy = 0;
-            swimVX = 0; swimVZ = 0; ejectT = 0;
+            swimVX = 0; swimVZ = 0; flinging = false;
             swimOff = 0; swimVy = 0; airbornePrev = false;
             underwater = false; submergeAmt = 0; wasSubmerged = false;
             curRoll += (0 - curRoll) * Math.min(1, dt * 5);
           }
         } else {
           curRoll += (0 - curRoll) * Math.min(1, dt * 5);
-          swimVX = 0; swimVZ = 0; ejectT = 0; swimOff = 0; swimVy = 0; airbornePrev = false;
+          swimVX = 0; swimVZ = 0; flinging = false; swimOff = 0; swimVy = 0; airbornePrev = false;
           underwater = false; submergeAmt = 0; wasSubmerged = false;
           // 轨道视角：洋流会把物体慢慢带走，定期把漂远的重新放回（遗迹锚定不动，不处理）
           for (const f of floaters) {
@@ -2544,6 +2800,9 @@
           if (curT - ripples[i].t0 > 5) ripples.splice(i, 1);
         }
 
+        // 操作指南：引导箭头每帧跟随最近的收集球
+        if (guideOpen && GUIDE[guideIdx] && GUIDE[guideIdx].arrow) placeArrow();
+
         requestAnimationFrame(frame);
       }
 
@@ -2565,6 +2824,462 @@
       sndChk.addEventListener('change', () => {
         Sfx.init();
         Sfx.setMuted(!sndChk.checked);
+      });
+
+      // ---------- 操作指南：白色线稿图示 + 基础演示动画，分页浏览 ----------
+      // 键帽（矩形 + 字母），图示里用来示意按键
+      const kc = (x, y, w, h, label) =>
+        '<g transform="translate(' + x + ' ' + y + ')">' +
+          '<rect x="' + (-w / 2) + '" y="' + (-h / 2) + '" width="' + w + '" height="' + h + '" rx="4.5"/>' +
+          '<text class="kc-t" x="0" y="1">' + label + '</text>' +
+        '</g>';
+      // 可横向流动的波浪：首尾各多画一段，平移时不会露出断口
+      const WAVE = 'M-40 78q10 -8 20 0t20 0t20 0t20 0t20 0t20 0t20 0t20 0t20 0t20 0t20 0t20 0t20 0t20 0';
+
+      const GUIDE = [
+        {
+          title: '拖动旋转视角',
+          note: '按住鼠标左键拖动 · 环绕角色观察',
+          svg:
+            '<circle class="dim dashed" cx="54" cy="75" r="38"/>' +
+            '<circle cx="54" cy="75" r="7.5"/>' +
+            '<path class="dim" d="M46.5 75h15M54 67.5v15"/>' +
+            '<g class="a-spin" style="transform-origin:54px 75px">' +
+              '<g transform="translate(54 37)">' +
+                '<rect x="-13" y="-8" width="26" height="16" rx="4"/>' +
+                '<path d="M-5.5 -8l3.5-5h8l3.5 5"/>' +
+                '<circle cx="0" cy="0.5" r="2.4"/>' +
+              '</g>' +
+            '</g>' +
+            '<path class="dim" d="M104 75h22M122 75l-6-4.5M122 75l-6 4.5"/>' +
+            '<g transform="translate(164 75)">' +
+              '<circle r="14"/>' +
+              '<path d="M0 -20v11M0 20v-11M-20 0h11M20 0h-11"/>' +
+            '</g>'
+        },
+        {
+          title: '滚轮缩放视角',
+          note: '滚动鼠标滚轮 · 拉近拉远画面',
+          svg:
+            '<circle class="dim dashed" cx="54" cy="75" r="38"/>' +
+            '<circle cx="54" cy="75" r="7.5"/>' +
+            '<path class="dim" d="M46.5 75h15M54 67.5v15"/>' +
+            '<g transform="translate(54 37)">' +
+              '<rect x="-13" y="-8" width="26" height="16" rx="4"/>' +
+              '<path d="M-5.5 -8l3.5-5h8l3.5 5"/>' +
+              '<circle cx="0" cy="0.5" r="2.4"/>' +
+            '</g>' +
+            '<g class="a-zoom" style="transform-origin:140px 75px">' +
+              '<rect x="128" y="55" width="24" height="40" rx="12"/>' +
+              '<rect x="137" y="62" width="6" height="12" rx="3"/>' +
+            '</g>' +
+            '<path class="dim" d="M104 75h14M114 75l-5-4M114 75l-5 4"/>'
+        },
+        {
+          title: '拖动物体',
+          note: '按住物体拖动 · 抛掷或移动',
+          svg:
+            '<circle class="dim dashed" cx="54" cy="75" r="38"/>' +
+            '<circle cx="54" cy="75" r="7.5"/>' +
+            '<path class="dim" d="M46.5 75h15M54 67.5v15"/>' +
+            '<g transform="translate(54 37)">' +
+              '<rect x="-13" y="-8" width="26" height="16" rx="4"/>' +
+              '<path d="M-5.5 -8l3.5-5h8l3.5 5"/>' +
+              '<circle cx="0" cy="0.5" r="2.4"/>' +
+            '</g>' +
+            '<g class="a-drag" style="transform-origin:140px 75px">' +
+              '<rect x="126" y="61" width="28" height="28" rx="4"/>' +
+              '<path class="dim" d="M132 67h16M132 75h16M132 83h10"/>' +
+            '</g>' +
+            '<path class="dim" d="M104 75h14M114 75l-5-4M114 75l-5 4"/>'
+        },
+        {
+          title: '点右上角【视角】图标',
+          note: '切到第一人称 · 默认是游泳状态',
+          hl: 'viewBtn', wait: '点击它进入第一人称',
+          svg:
+            '<circle class="dim dashed" cx="54" cy="75" r="38"/>' +
+            '<circle cx="54" cy="75" r="7.5"/>' +
+            '<path class="dim" d="M46.5 75h15M54 67.5v15"/>' +
+            '<g class="a-spin" style="transform-origin:54px 75px">' +
+              '<g transform="translate(54 37)">' +
+                '<rect x="-13" y="-8" width="26" height="16" rx="4"/>' +
+                '<path d="M-5.5 -8l3.5-5h8l3.5 5"/>' +
+                '<circle cx="0" cy="0.5" r="2.4"/>' +
+              '</g>' +
+            '</g>' +
+            '<path class="dim" d="M104 75h22M122 75l-6-4.5M122 75l-6 4.5"/>' +
+            '<g transform="translate(164 75)">' +
+              '<circle r="14"/>' +
+              '<path d="M0 -20v11M0 20v-11M-20 0h11M20 0h-11"/>' +
+            '</g>'
+        },
+        {
+          title: '【W】【A】【S】【D】游泳',
+          note: '默认在水面游泳 · 鼠标转头',
+          svg:
+            kc(48, 40, 26, 22, 'W') +
+            kc(14, 74, 26, 22, 'A') +
+            kc(48, 74, 26, 22, 'S') +
+            kc(82, 74, 26, 22, 'D') +
+            '<rect class="a-pulse" x="33" y="27" width="30" height="26" rx="6" style="transform-origin:48px 40px"/>' +
+            '<path class="dim" d="M114 74h54"/>' +
+            '<path class="a-dash acc" d="M114 74h54"/>' +
+            '<path d="M162 74l-7-5M162 74l-7 5"/>'
+        },
+        {
+          title: '【Shift】下沉 ·【空格】上浮',
+          note: '先学会在水里上下移动',
+          svg:
+            kc(64, 24, 68, 24, 'SPACE') +
+            kc(64, 126, 68, 24, 'SHIFT') +
+            '<path class="dim dashed" d="M64 44v62"/>' +
+            '<path class="dim" d="M58.5 52l5.5-6 5.5 6"/>' +
+            '<path class="dim" d="M58.5 98l5.5 6 5.5-6"/>' +
+            '<g class="a-rise"><g transform="translate(64 75)">' +
+              '<circle r="6.5"/>' +
+              '<path class="dim" d="M-13 0h6.5M13 0h-6.5"/>' +
+            '</g></g>' +
+            '<path class="dim" d="M124 56h52M124 94h52"/>' +
+            '<path class="a-dash acc" d="M124 56h52M124 94h52"/>'
+        },
+        {
+          title: '双击【空格】起飞',
+          note: '进入飞行 · 空格升 / Shift 降',
+          svg:
+            '<rect class="a-pulse" x="31" y="50" width="50" height="50" rx="10" style="transform-origin:56px 75px"/>' +
+            '<rect class="a-pulse" x="31" y="50" width="50" height="50" rx="10" style="transform-origin:56px 75px;animation-delay:.6s"/>' +
+            kc(56, 75, 38, 30, 'SPACE') +
+            '<path class="dim" d="M116 60h54M116 75h68M116 90h54"/>' +
+            '<path class="a-dash acc" d="M116 60h54M116 75h68M116 90h54"/>'
+        },
+        {
+          title: '双击【W】疾跑',
+          note: '再双击取消 · 提速约 35%',
+          svg:
+            '<rect class="a-pulse" x="31" y="50" width="50" height="50" rx="10" style="transform-origin:56px 75px"/>' +
+            '<rect class="a-pulse" x="31" y="50" width="50" height="50" rx="10" style="transform-origin:56px 75px;animation-delay:.6s"/>' +
+            kc(56, 75, 38, 30, 'W') +
+            '<path class="dim" d="M116 60h54M116 75h68M116 90h54"/>' +
+            '<path class="a-dash acc" d="M116 60h54M116 75h68M116 90h54"/>'
+        },
+        {
+          title: '左键【点】击飞物体 ·【长按】抓取物体',
+          note: '准心对准物体 · 金球点击收集',
+          svg:
+            '<rect x="34" y="38" width="46" height="72" rx="23"/>' +
+            '<path class="dim" d="M34 63h46"/>' +
+            '<path class="a-fade" d="M57 38a23 23 0 0 0-23 23v2h23"/>' +
+            '<path class="dim dashed" d="M114 60q26-14 52-34"/>' +
+            '<g class="a-shoot"><g transform="translate(110 60)">' +
+              '<rect x="-7" y="-7" width="14" height="14" rx="2.5"/>' +
+            '</g></g>' +
+            '<path d="M170 22l-9 3M170 22l-9-1"/>'
+        },
+        {
+          title: '集齐【3】颗金球',
+          note: '跟着箭头走向最近的球 · 点击收集',
+          arrow: true,
+          svg:
+            '<circle cx="28" cy="48" r="8.5"/>' +
+            '<circle class="dim" cx="28" cy="48" r="3"/>' +
+            '<circle cx="52" cy="76" r="8.5"/>' +
+            '<circle class="dim" cx="52" cy="76" r="3"/>' +
+            '<circle class="a-fade" cx="78" cy="104" r="8.5"/>' +
+            '<circle class="dim" cx="78" cy="104" r="3"/>' +
+            '<path class="dim" d="M104 76h24M124 76l-6-4.5M124 76l-6 4.5"/>' +
+            '<g class="a-turn" style="transform-origin:162px 76px">' +
+              '<g transform="translate(162 76)">' +
+                '<path d="M-30 9h48l14-11-14-11h-48a7 7 0 0 0 0 22z"/>' +
+                '<path class="dim" d="M-18 -5v11M-6 -5v11M6 -5v11M18 -5v11"/>' +
+              '</g>' +
+            '</g>'
+        },
+        {
+          title: '集满【3】颗召唤木筏',
+          note: '靠近按 F 或右键上船',
+          svg:
+            '<circle cx="28" cy="48" r="8.5"/>' +
+            '<circle class="dim" cx="28" cy="48" r="3"/>' +
+            '<circle cx="52" cy="76" r="8.5"/>' +
+            '<circle class="dim" cx="52" cy="76" r="3"/>' +
+            '<circle class="a-fade" cx="78" cy="104" r="8.5"/>' +
+            '<circle class="dim" cx="78" cy="104" r="3"/>' +
+            '<path class="dim" d="M104 76h24M124 76l-6-4.5M124 76l-6 4.5"/>' +
+            '<g class="a-turn" style="transform-origin:162px 76px">' +
+              '<g transform="translate(162 76)">' +
+                '<path d="M-30 9h48l14-11-14-11h-48a7 7 0 0 0 0 22z"/>' +
+                '<path class="dim" d="M-18 -5v11M-6 -5v11M6 -5v11M18 -5v11"/>' +
+              '</g>' +
+            '</g>'
+        },
+        {
+          title: '【W】前进 ·【A】【D】转向',
+          note: 'Shift / C / 空格 下船',
+          svg:
+            '<g class="a-turn" style="transform-origin:100px 66px">' +
+              '<g transform="translate(100 66)">' +
+                '<path d="M-32 9h50l15-12-15-12h-50a8 8 0 0 0 0 24z"/>' +
+                '<path class="dim" d="M-20 -5v11M-7 -5v11M6 -5v11M19 -5v11"/>' +
+              '</g>' +
+            '</g>' +
+            kc(100, 20, 26, 22, 'W') +
+            '<path class="dim" d="M100 35v12M95 42l5 5 5-5"/>' +
+            kc(100, 118, 26, 22, 'S') +
+            '<path class="dim" d="M100 80v16M95 90l5 5 5-5"/>' +
+            kc(32, 66, 26, 22, 'A') +
+            kc(168, 66, 26, 22, 'D') +
+            '<path class="dim" d="M52 66h14M134 66h14"/>'
+        },
+        {
+          title: '【设置】里召唤随机事件',
+          note: '巨浪 · 海啸 · 龙卷风',
+          hl: 'settingsBtn', wait: '点它打开设置面板',
+          svg:
+            '<rect x="34" y="30" width="132" height="90" rx="10"/>' +
+            '<circle cx="52" cy="48" r="6"/>' +
+            '<path class="dim" d="M64 48h88"/>' +
+            '<rect x="46" y="64" width="52" height="18" rx="5"/>' +
+            '<rect x="102" y="64" width="52" height="18" rx="5"/>' +
+            '<rect x="46" y="90" width="108" height="18" rx="5"/>' +
+            '<path class="a-wave" d="M46 100q8 -5 16 0t16 0t16 0t16 0t16 0t16 0t16 0"/>'
+        }
+      ];
+
+      const guideBtn = document.getElementById('guideBtn');
+      const guideOverlay = document.getElementById('guideOverlay');
+      const guideFig = document.getElementById('guideFig');
+      const guideTitle = document.getElementById('guideTitle');
+      const guideDesc = document.getElementById('guideDesc');
+      const guideDots = document.getElementById('guideDots');
+      const guideHl = document.getElementById('guideHl');
+      const guideArrows = document.getElementById('guideArrows');
+      const guideWait = document.getElementById('guideWait');
+      const guideMask = document.getElementById('guideMask');
+      let guideIdx = 0, guideOpen = false;
+      // 【按键名】渲染成高亮键帽（文案是写死的静态内容，可直接拼 HTML）
+      const fmtKeys = s => s.replace(/【([^】]*)】/g, '<span class="k">$1</span>');
+
+      GUIDE.forEach((_, i) => {
+        const b = document.createElement('button');
+        b.className = 'guide-dot';
+        b.type = 'button';
+        b.setAttribute('aria-label', '第 ' + (i + 1) + ' 页：' + GUIDE[i].title.replace(/[【】]/g, ''));
+        b.addEventListener('click', () => showGuide(i));
+        guideDots.appendChild(b);
+      });
+      const guideDotEls = guideDots.children;
+
+      // 把白色高亮框套到某个屏幕 UI 上，遮罩从四周收缩到按钮周围，并放「等待点击」提示
+      let hlTarget = null;  // 当前被高亮的 UI 元素，用于恢复 z-index
+      let hlClickHandler = null;  // 当前高亮元素的点击监听，用于解绑
+      function placeHl(id, waitText) {
+        const el = document.getElementById(id);
+        if (!el) { guideHl.hidden = true; guideWait.hidden = true; guideMask.hidden = true; return; }
+        const r = el.getBoundingClientRect();
+        const pad = 7;
+        guideHl.style.left = (r.left - pad) + 'px';
+        guideHl.style.top = (r.top - pad) + 'px';
+        guideHl.style.width = (r.width + pad * 2) + 'px';
+        guideHl.style.height = (r.height + pad * 2) + 'px';
+        guideHl.hidden = false;
+        // 遮罩层：直接显示，覆盖全屏
+        guideMask.hidden = false;
+        guideMask.style.display = '';
+        guideMask.style.transition = 'none';
+        guideMask.style.clipPath = '';
+        // 让目标 UI 浮到遮罩层之上，可被点击
+        if (hlTarget && hlTarget !== el) {
+          hlTarget.style.zIndex = '';
+          hlTarget.style.pointerEvents = '';
+        }
+        // 解绑上一个高亮元素的点击监听
+        if (hlClickHandler) {
+          hlTarget.removeEventListener('click', hlClickHandler);
+          hlClickHandler = null;
+        }
+        hlTarget = el;
+        el.style.zIndex = '48';
+        el.style.pointerEvents = 'auto';
+        // 点击高亮按钮后自动跳到下一步
+        hlClickHandler = () => {
+          if (guideOpen) showGuide(guideIdx + 1);
+        };
+        el.addEventListener('click', hlClickHandler);
+        if (waitText) {
+          guideWait.textContent = waitText;
+          guideWait.style.left = (r.left + r.width / 2) + 'px';
+          // 按钮在屏幕顶部时气泡放下方，避免出屏
+          if (r.top < 80) {
+            guideWait.style.top = (r.bottom + 14) + 'px';
+            guideWait.style.transform = 'translate(-50%, 0)';
+          } else {
+            guideWait.style.top = (r.top - 14) + 'px';
+            guideWait.style.transform = 'translate(-50%, -100%)';
+          }
+          guideWait.hidden = false;
+        } else {
+          guideWait.hidden = true;
+        }
+      }
+      // 引导箭头：平铺海面的路线指引 + 玩家前方转向提示
+      const ARROW_SVG = '<svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 30V8M17 8l-8 8M17 8l8 8"/></svg>';
+      let arrowEls = [];  // 当前创建的箭头元素（复用）
+      function ensureArrows(count) {
+        while (arrowEls.length < count) {
+          const el = document.createElement('div');
+          el.className = 'guide-arrow-item';
+          el.innerHTML = ARROW_SVG;
+          guideArrows.appendChild(el);
+          arrowEls.push(el);
+        }
+        for (let i = 0; i < arrowEls.length; i++) {
+          arrowEls[i].style.display = i < count ? '' : 'none';
+        }
+      }
+      function placeArrow() {
+        // 找到最近的收集球
+        let best = null, bestD = Infinity;
+        for (const f of floaters) {
+          if (!f.collectible) continue;
+          const d = (f.x - camX) * (f.x - camX) + (f.z - camZ) * (f.z - camZ);
+          if (d < bestD) { bestD = d; best = f; }
+        }
+        if (!best) { ensureArrows(0); return; }
+        const dx = best.x - camX, dz = best.z - camZ;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < 1) { ensureArrows(0); return; }
+        const nx = dx / dist, nz = dz / dist;           // 指向球的单位向量
+        // 玩家前向（FPV 用 yaw；orbit 用相机方位角）
+        const fwdX = Math.sin(yaw), fwdZ = -Math.cos(yaw);
+        const dot = fwdX * nx + fwdZ * nz;              // 1=正前方，-1=正后方
+        const needTurn = dot < 0.5;                     // 夹角 > 60° 需转向
+        // 路径箭头：沿玩家→球方向，平铺在海面上，最多 6 个
+        const step = 22, maxArrows = 6;
+        const pathCount = Math.min(maxArrows, Math.floor(dist / step));
+        const total = pathCount + (needTurn ? 1 : 0);   // 多一个前方转向箭头
+        ensureArrows(total);
+        const pathAng = Math.atan2(dx, dz) * 180 / Math.PI;
+        for (let i = 0; i < pathCount; i++) {
+          const t = (i + 1) * step;
+          const wx = camX + nx * t, wz = camZ + nz * t;
+          const wy = waveHeight(wx, wz, curT);          // 海面高度，平贴
+          const p = project(wx, wy, wz, curCosY, curSinY, curCosP, curSinP);
+          const el = arrowEls[i];
+          if (!p) { el.style.display = 'none'; continue; }
+          el.style.display = '';
+          el.style.left = p.sx + 'px';
+          el.style.top = p.sy + 'px';
+          el.className = 'guide-arrow-item';
+          el.querySelector('svg').style.transform = 'rotate(' + pathAng + 'deg)';
+        }
+        // 玩家朝向不对：在前方渲染一个黄色转向箭头，指向应转去的方向
+        if (needTurn) {
+          const idx = pathCount;
+          const cross = fwdX * nz - fwdZ * nx;          // 叉积：>0 球在左，<0 在右
+          const turnAng = cross > 0 ? -90 : 90;          // 左转/右转
+          const fx = camX + fwdX * 14, fz = camZ + fwdZ * 14;
+          const fy = waveHeight(fx, fz, curT);
+          const p = project(fx, fy, fz, curCosY, curSinY, curCosP, curSinP);
+          const el = arrowEls[idx];
+          if (!p) { el.style.display = 'none'; return; }
+          el.style.display = '';
+          el.style.left = p.sx + 'px';
+          el.style.top = p.sy + 'px';
+          el.className = 'guide-arrow-item guide-arrow-turn';
+          const baseAng = Math.atan2(fwdX, fwdZ) * 180 / Math.PI;
+          el.querySelector('svg').style.transform = 'rotate(' + (baseAng + turnAng) + 'deg)';
+        }
+      }
+      function clearArrows() {
+        for (const el of arrowEls) el.remove();
+        arrowEls = [];
+      }
+      function clearGuideFx() {
+        guideHl.hidden = true;
+        clearArrows();
+        guideWait.hidden = true;
+        guideMask.hidden = true;
+        guideMask.style.display = 'none';
+        guideMask.style.transition = '';
+        guideMask.style.clipPath = '';
+        if (hlClickHandler && hlTarget) {
+          hlTarget.removeEventListener('click', hlClickHandler);
+          hlClickHandler = null;
+        }
+        if (hlTarget) {
+          hlTarget.style.zIndex = '';
+          hlTarget.style.pointerEvents = '';
+          hlTarget = null;
+        }
+      }
+
+      function showGuide(i) {
+        guideIdx = (i + GUIDE.length) % GUIDE.length;
+        const p = GUIDE[guideIdx];
+        guideTitle.innerHTML = fmtKeys(p.title);
+        guideDesc.textContent = p.note;
+        // 每次重新插入 SVG，让图示动画从头播放
+        guideFig.innerHTML = '<svg viewBox="0 0 200 150" aria-hidden="true">' + p.svg + '</svg>';
+        for (let d = 0; d < guideDotEls.length; d++) guideDotEls[d].classList.toggle('on', d === guideIdx);
+        // 引导特效：白色高亮框（指向屏幕 UI）/ 引导箭头（指向最近的球）
+        clearGuideFx();
+        if (p.hl) placeHl(p.hl, p.wait);
+        else if (p.arrow) placeArrow();
+        // 第三人称介绍页（前 3 页）自动切换到第三人称视角（不触发指针锁定）
+        if (guideIdx < 3 && camMode !== 'orbit') {
+          camMode = 'orbit';
+          camX = camY = camZ = 0;
+          if (document.pointerLockElement === canvas && document.exitPointerLock) document.exitPointerLock();
+          yawT = yaw; pitchT = pitch;
+          buildParticles(GRID, OCEAN);
+          buildFloaters(objTarget);
+          ensureRuins(0, 0);
+          ensureCollectibles(0, 0);
+          camState = 'fly'; sprint = false; curRoll = 0;
+          viewBtn.classList.remove('active');
+          viewBtn.title = '视角：环绕（点击切换第一人称飞行）';
+          setFpvUi();
+        }
+        // 高亮按钮页 / 收集球页：禁用翻页按钮，必须完成操作才能翻到下一步
+        const lockNav = !!p.hl || !!p.arrow;
+        document.getElementById('guidePrev').disabled = lockNav;
+        document.getElementById('guideNext').disabled = lockNav;
+      }
+
+      function openGuide() {
+        guideOpen = true;
+        if (document.pointerLockElement) document.exitPointerLock();
+        for (const kk in keys) keys[kk] = false;   // 松开所有按键，避免人还在往前走
+        sprint = false;
+        showGuide(guideIdx);
+        guideOverlay.classList.add('show');
+        guideBtn.style.display = 'none';
+        document.getElementById('guideClose').style.display = 'flex';
+      }
+      function closeGuide() {
+        guideOpen = false;
+        clearGuideFx();
+        guideOverlay.classList.remove('show');
+        guideBtn.style.display = '';
+        document.getElementById('guideClose').style.display = 'none';
+      }
+      guideBtn.addEventListener('click', () => guideOpen ? closeGuide() : openGuide());
+      document.getElementById('guideClose').addEventListener('click', closeGuide);
+      document.getElementById('guidePrev').addEventListener('click', () => showGuide(guideIdx - 1));
+      document.getElementById('guideNext').addEventListener('click', () => showGuide(guideIdx + 1));
+      window.addEventListener('keydown', e => {
+        if (!guideOpen) return;
+        const k = e.key.toLowerCase();
+        if (k === 'escape') { e.preventDefault(); closeGuide(); }
+        else if (k === 'arrowleft') {
+          e.preventDefault();
+          if (!GUIDE[guideIdx].hl && !GUIDE[guideIdx].arrow) showGuide(guideIdx - 1);
+        }
+        else if (k === 'arrowright') {
+          e.preventDefault();
+          if (!GUIDE[guideIdx].hl && !GUIDE[guideIdx].arrow) showGuide(guideIdx + 1);
+        }
       });
 
       // 视角切换：环绕 ⇄ 第一人称飞行/游泳
