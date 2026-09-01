@@ -952,13 +952,27 @@
         return cur;
       }
 
-      // ---------- 海上遗迹：巨大的立方 / 长条 / 四面体，大半沉在水下，随波浪若隐若现 ----------
+      // ---------- 海上遗迹：断成上下两截，中间整整一栋楼的高度完全镂空 ----------
+      // 下截从极深的海底一路长上来、在海面之下截断；上截从极高的天穹一路垂下来、在海面之上截断。
+      // 两截都永不与水面相交 —— 水面裁剪再也切不到遗迹，起伏的浪面就不会把它裁得一跳一跳的。
       const RUIN_TARGET = 3, RUIN_R = 300;
-      const SEABED_Y = -1950;               // 海底：遗迹从这里一直长上来（向水下延伸极深）
+      const SEABED_Y = -1950;               // 玩家潜水的海底（深海压力软性限制，与遗迹无关）
+      const RUIN_ABYSS_Y = -3000;           // 遗迹下截的深渊端（远超淡出范围，看上去是无尽深）
+      const RUIN_SKY_Y = 1600;              // 遗迹上截的天穹端（远超淡出范围，看上去是无尽高）
+      // 两截的高度区间是卡着海况定的：下截顶面要低过最深的浪谷（海啸浪谷约 -41，再叠基础波
+      // 与截面的倾斜抬升约 11），上截底面要高过最高的浪峰（超大海啸浪峰约 124）。两边都留了
+      // 余量，于是除了玩家手动触发的超大海啸，平时两截连浪尖浪谷都碰不到。
+      // 下截顶面上限还卡在 -62：玩家极限下潜到 -90（脚约 -91.3）时得仍在顶面之下，
+      // 这样贴着墙按空格才起得了攀爬、爬得上这截水下平台。
+      const RUIN_DEEP_TOP = [-88, -62];     // 下截顶面高度区间（海面之下）
+      const RUIN_SKY_BOT = [150, 230];      // 上截底面高度区间（海面之上）
+      const RUIN_DARK_DEPTH = 520;          // 水下可见深度：越深越暗，尽头融进黑暗 = 无限深
+      const RUIN_SKY_FADE = 700;            // 上截往上的淡出高度：越高越淡，尽头融进天光 = 无限高
+      const RUIN_SEG_STEP = 55;             // 侧面分段步长（越小，被浪逐块挡住时消失得越细腻）
       const RUIN_MAX_TILT = 0.3;            // 遗迹最大倾角（超过这个坡度爬不上去，会滑下来）
-      const CLIMB_REACH = 35;               // 贴着墙能往上爬的最大高度（要够到摩天大楼顶）
+      const CLIMB_REACH = 35;               // 贴着墙能往上爬的最大高度（要够到下截顶面）
       const CLIMB_SPEED = 7;                // 攀爬速度（单位/秒）
-      const JUMP_V = 16;                    // 在屋顶上按空格跳跃的向上初速
+      const JUMP_V = 16;                    // 在下截顶面上按空格跳跃的向上初速
 
       // 遗迹的水平半尺寸（局部坐标，未旋转）
       function ruinHalf(f) {
@@ -983,11 +997,17 @@
         const cy = Math.cos(f.ry), sy = Math.sin(f.ry);
         return [lx * cy + lz * sy, -lx * sy + lz * cy];
       }
-      // 顶面在局部坐标 (lx,lz) 处的世界高度：rotVec 的 pitch 只抬高/压低 z1 方向
+      // 下截顶面在局部坐标 (lx,lz) 处的世界高度：rotVec 的 pitch 只抬高/压低 z1 方向
       function ruinTopAt(f, lx, lz) {
         const cy = Math.cos(f.ry), sy = Math.sin(f.ry);
         const z1 = -lx * sy + lz * cy;
         return f.y - z1 * Math.sin(f.rx);
+      }
+      // 上截底面（悬在半空的「天花板」）在局部坐标 (lx,lz) 处的世界高度
+      function ruinCeilAt(f, lx, lz) {
+        const cy = Math.cos(f.ry), sy = Math.sin(f.ry);
+        const z1 = -lx * sy + lz * cy;
+        return f.y2 - z1 * Math.sin(f.rx);
       }
       function countRuins() {
         let n = 0;
@@ -999,13 +1019,15 @@
         const sc = 6 + Math.random() * 8;
         const ang = Math.random() * 6.2832;
         const r = 60 + Math.random() * (RUIN_R - 60);
-        // 遗迹直入云霄：顶面高出水面 110~220 单位，从海底一路耸立到天上
-        const topY = 110 + Math.random() * 110;
+        // 遗迹断成两截：f.y = 下截顶面（海面之下），f.y2 = 上截底面（海面之上）。
+        // 中间那一段（海面上下各一栋楼的高度）整个不存在。
+        const deepY = RUIN_DEEP_TOP[0] + Math.random() * (RUIN_DEEP_TOP[1] - RUIN_DEEP_TOP[0]);
+        const skyY = RUIN_SKY_BOT[0] + Math.random() * (RUIN_SKY_BOT[1] - RUIN_SKY_BOT[0]);
         floaters.push({
           type: 'ruin',
           ruinShape: shapes[(Math.random() * shapes.length) | 0],
           sc, x: cx0 + Math.cos(ang) * r, z: cz0 + Math.sin(ang) * r,
-          y: topY, vx: 0, vy: 0, vz: 0,
+          y: deepY, y2: skyY, vx: 0, vy: 0, vz: 0,
           born: curT,               // 出生时间：生成后透明度渐入，丝滑出现
           // 微倾：倾角决定顶面坡度，够缓才爬得上去
           rx: (Math.random() - 0.5) * 2 * RUIN_MAX_TILT * 1.4,
@@ -1238,7 +1260,7 @@
       const AIR_OFF = 2.2;              // 离水面超过这个高度就按重力自由落体处理
       const FALL_G_MUL = 1.8;           // 空中下落的重力倍率（与「取消飞行」同一下落模型）
       // 下落是「越来越快」的加速运动。终端速度只是极端高度的兜底：
-      // 从最高的大楼（220）掉到水面约 140，全程都还在加速；
+      // 从遗迹上截底面（最高 230）掉到水面，全程都还在加速；
       // 只有被龙卷风卷到 800 的高空再落下时才会触到上限，最后一段转为匀速。
       const FALL_TERMINAL = 225;
 
@@ -2001,17 +2023,18 @@
         // 不再整组隐藏：物体按其深度层参与渲染，被波挡住的部分由黑色波面遮罩逐段截断
 
         if (f.type === 'ruin') {
-          // 遗迹是实心柱体：顶面 + 侧面全部填充白色（半透明），侧面按垂直分段绘制。
-          // 分段的目的：被浪墙「只挡住一部分」时只有被挡的那一段消失，其余面保留，
-          // 不会整条线/整张面突然消失。
+          // 遗迹断成上下两截，海面附近整整一栋楼的高度完全镂空：
+          //   下截 —— 从极深的海底一路长上来，在海面之下截断；越深越暗，尽头融进黑暗
+          //   上截 —— 从极高的天穹一路垂下来，在海面之上截断；越高越淡，尽头融进天光
+          // 水面是不透光的，所以一次只会画其中一截：浮在水面上看见的是天上垂下来的那截，
+          // 潜到水下看见的才是海底长上来的那截。两截都不与水面相交，水面裁剪再也切不到遗迹。
           const sect = ruinSection(f);
           const local = sect.map(p => rotVec([p[0], 0, p[1]], f.rx, f.ry));  // 截面顶点的世界偏移
-          const topY = f.y;
-          const span = topY - SEABED_Y;
-          if (span <= 0) return;
+          const deepTop = f.y;                    // 下截顶面（海面之下）
+          const skyBot = f.y2;                    // 上截底面（海面之上，悬空平台的「天花板」）
           // 波面遮挡：世界点若被「更近的浪峰」挡住则跳过绘制。
           // 玩家站在遗迹上、或紧挨着遗迹（28 单位内）时禁用；高处（水面 4 单位以上）
-          // 也不遮挡——游泳贴水时远处看楼不会整座突然截断消失，只有贴近水面的部分被浪逐块挡住。
+          // 也不遮挡——上截整截都在水面之上，天然不会被浪挡住。
           const occAt = (wx, wy, wz) => {
             if (occStrength <= 0.02 || standY > -999) return false;
             if (Math.hypot(wx - camX, wz - camZ) < 28) return false;
@@ -2024,24 +2047,47 @@
             return pr.sy >= occHorizon(k * occCols + c);
           };
           const proj3 = (x, y, z) => project(x, y, z, curCosY, curSinY, curCosP, curSinP);
-          const DARK_DEPTH = 90, SEG = 20;  // 每面更薄，被浪挡住时逐块消失更细腻、交错遮挡更自然
+          const STEP = RUIN_SEG_STEP;   // 侧面分段步长：被浪挡住时逐块消失更细腻、交错遮挡更自然
 
-          // 收集所有面：顶面 + 每条边从上到下分成 SEG 个四边形面
+          // 全场景统一的可见性规则：水上只看水面以上，水下只看水面以下（木筏、漂浮物都一样）。
+          // 遗迹断成两截之后，这条规则正好落在两截中间那道镂空里 ——
+          // 人在海面上就只看见天穹垂下来的那截，潜到水下才看见海底长上来的那截，
+          // 谁都不会隔着水面被看见。顺带也只生成用得上的那一截，面数直接减半。
+          const showDeep = underwater;      // 水下 → 下截；水上 → 上截
+          // 端面 + 每条边按步长朝深渊/朝天穹分段。
+          // 超过淡出范围的段直接不生成：既省算力，也不影响观感（那里 alpha 已经是 0）。
           const faces = [];
-          faces.push({ pts: local.map(v => ({ x: f.x + v[0], y: topY + v[1], z: f.z + v[2] })), isTop: true });
-          for (let e = 0; e < sect.length; e++) {
-            const A = local[e], B = local[(e + 1) % sect.length];
-            for (let i = 0; i < SEG; i++) {
-              const t0 = i / SEG, t1 = (i + 1) / SEG;
-              const y0 = topY - span * t0, y1 = topY - span * t1;
-              faces.push({
-                pts: [
+          if (showDeep) {
+            // 下截：水下平台顶面 + 从顶面一路往深渊分段（从极深的海底长上来）
+            faces.push({ pts: local.map(v => ({ x: f.x + v[0], y: deepTop + v[1], z: f.z + v[2] })), isTop: true, deep: true });
+            for (let e = 0; e < sect.length; e++) {
+              const A = local[e], B = local[(e + 1) % sect.length];
+              for (let y0 = deepTop; y0 > RUIN_ABYSS_Y; y0 -= STEP) {
+                const y1 = Math.max(RUIN_ABYSS_Y, y0 - STEP);
+                if (surfaceY - (y0 + y1) * 0.5 > RUIN_DARK_DEPTH) break;   // 已经暗到看不见
+                faces.push({ deep: true, pts: [
                   { x: f.x + A[0], y: y0 + A[1], z: f.z + A[2] },
                   { x: f.x + A[0], y: y1 + A[1], z: f.z + A[2] },
                   { x: f.x + B[0], y: y1 + B[1], z: f.z + B[2] },
                   { x: f.x + B[0], y: y0 + B[1], z: f.z + B[2] }
-                ]
-              });
+                ] });
+              }
+            }
+          } else {
+            // 上截：悬空平台的底面 + 从底面一路往天穹分段（从极高的天穹垂下来）
+            faces.push({ pts: local.map(v => ({ x: f.x + v[0], y: skyBot + v[1], z: f.z + v[2] })), isTop: true, deep: false });
+            for (let e = 0; e < sect.length; e++) {
+              const A = local[e], B = local[(e + 1) % sect.length];
+              for (let y0 = skyBot; y0 < RUIN_SKY_Y; y0 += STEP) {
+                const y1 = Math.min(RUIN_SKY_Y, y0 + STEP);
+                if ((y0 + y1) * 0.5 - skyBot > RUIN_SKY_FADE) break;   // 已经淡进天光
+                faces.push({ deep: false, pts: [
+                  { x: f.x + A[0], y: y0 + A[1], z: f.z + A[2] },
+                  { x: f.x + A[0], y: y1 + A[1], z: f.z + A[2] },
+                  { x: f.x + B[0], y: y1 + B[1], z: f.z + B[2] },
+                  { x: f.x + B[0], y: y0 + B[1], z: f.z + B[2] }
+                ] });
+              }
             }
           }
           // 按平均深度从远到近排序（画家算法）
@@ -2053,11 +2099,13 @@
           faces.sort((a, b) => b.depth - a.depth);
 
           for (const fa of faces) {
-            // 水面裁剪：水上只看水面以上，水下只看水面以下
+            // 保险：万一极端浪高把这一截顶过了水面，仍按同一条规则裁掉越界的那一侧。
+            // 正常情况下两截各自完全在自己那一侧，整张面要么全留、要么全丢，永远不会被切成
+            // 一半 —— 正是这一点消灭了原来穿水处随波浪一跳一跳的那条边界。
             const clipped = underwater ? clipPolyYBelow(fa.pts, surfaceY) : clipPolyY(fa.pts, surfaceY);
             if (clipped.length < 3) continue;
             // 波面遮挡：侧面段用中心点判断（被挡的那一段消失，其余保留）；
-            // 顶面用「整面都被挡」判断，换角度时只要还有一半可见就不会消失。
+            // 端面用「整面都被挡」判断，换角度时只要还有一半可见就不会消失。
             let occ = 0;
             for (const p of clipped) if (occAt(p.x, p.y, p.z)) occ++;
             if (fa.isTop ? occ === clipped.length : occ > 0) continue;
@@ -2066,12 +2114,13 @@
             const prs = [];
             for (const p of clipped) { const pr = proj3(p.x, p.y, p.z); if (pr) prs.push(pr); }
             if (prs.length < 2) continue;
-            // 越深越暗，最后消失在深处
             let cy = 0; for (const p of clipped) cy += p.y; cy /= clipped.length;
-            const depth = Math.max(0, surfaceY - cy);
             // 生成后 1.2 秒内透明度从 0 渐入，整座遗迹丝滑地出现（而不是面一块块冒出）
             const grow = Math.min(1, Math.max(0, (curT - (f.born || 0)) / 1.2));
-            const a = (cy > surfaceY ? 0.9 : 0.72 * Math.pow(Math.max(0, 1 - depth / DARK_DEPTH), 1.3)) * grow;
+            // 下截越深越暗、融进黑暗；上截越高越淡、融进天光 —— 两端都望不到尽头
+            const a = (fa.deep
+              ? 0.72 * Math.pow(Math.max(0, 1 - Math.max(0, surfaceY - cy) / RUIN_DARK_DEPTH), 1.3)
+              : 0.9 * Math.pow(Math.max(0, 1 - Math.max(0, cy - skyBot) / RUIN_SKY_FADE), 1.15)) * grow;
             if (a < 0.03) continue;
             if (prs.length === 2) {
               // 垂直视角下侧面退化成一条线：画成边框线，保证遗迹仍然可见不消失
@@ -2466,9 +2515,9 @@
           }
         }
 
-        // 遗迹碰撞：遗迹是彻底实体的墙——谁也穿不过去，包括飞行模式。
-        // 游泳时顶面够缓可以站上去（被顶面托住）、贴着墙按住空格能攀爬；
-        // 飞行时无论高低都被遗迹挡下：低于顶面被水平推开，高于顶面则被压到墙顶上。
+        // 遗迹碰撞：两截都是彻底实体的墙——谁也穿不过去，包括飞行模式。
+        // 下截顶面够缓可以站上去（被托住）、贴着墙按住空格能攀爬；上截底面像天花板会撞头。
+        // 两截之间那一层是镂空的，玩家可以从中间直接穿过去。
         if (camMode === 'fpv') {
           const wasStandY = standY;                           // 记录上帧的支撑高度
           standY = -1e9;                                      // 先假设无支撑，循环里检测到再更新
@@ -2479,9 +2528,36 @@
             const [hx, hz] = ruinHalf(f);
             const pad = 0.8;                                  // 玩家半径
             if (Math.abs(lx) > hx + pad || Math.abs(lz) > hz + pad) continue;
-            const topAt = ruinTopAt(f, lx, lz);
+            const topAt = ruinTopAt(f, lx, lz);        // 下截顶面（水下平台）
+            const ceilAt = ruinCeilAt(f, lx, lz);      // 上截底面（悬空天花板）
             const feet = camY - SWIM_EYE_H;
+            const head = camY;                          // 眼睛高度即头顶
             const tilt = Math.abs(f.rx);
+            // 两截之间那一层是镂空的：这里什么都没有，直接穿过去
+            if (feet > topAt + 0.4 && head < ceilAt - 0.4) continue;
+            // —— 上截：底面撞头、侧面挡人。它一路顶到天穹，谁也绕不过去 ——
+            if (head >= ceilAt - 0.4) {
+              const penUp = head - (ceilAt - 0.4);      // 头伸进底面多深
+              if (penUp > 0) {
+                const outX = (hx + pad) - Math.abs(lx);
+                const outZ = (hz + pad) - Math.abs(lz);
+                if (penUp <= Math.min(outX, outZ)) {
+                  // 竖直侵入更浅 = 是从下方顶上来的：压回底面之下（撞头）
+                  camY = ceilAt - 0.4;
+                  if (camVy > 0) camVy = 0;
+                  if (swimVy > 0) swimVy = 0;
+                } else {
+                  // 是从侧面撞进去的：沿最浅的一侧水平推出
+                  let nlx = lx, nlz = lz;
+                  if (outX < outZ) nlx = (lx < 0 ? -1 : 1) * (hx + pad);
+                  else nlz = (lz < 0 ? -1 : 1) * (hz + pad);
+                  const [wx, wz] = ruinToWorld(f, nlx, nlz);
+                  camX = f.x + wx; camZ = f.z + wz;
+                }
+              }
+              continue;
+            }
+            // —— 下截：顶面能站、贴墙能爬、侧面挡住 ——
             if (feet >= topAt - 0.4) {
               // 已到顶面高度。飞行时：高过顶面就能自由飞越（否则低头俯视遗迹时
               // 会被强制压到顶面高度、看起来像被传送回海面）；只有低空撞侧面才被挡。
@@ -2613,7 +2689,11 @@
         // 遗迹 / 木筏：在层循环外统一绘制，避免被逐层裁剪切成碎块
         for (const f of floaters) {
           if (f.type === 'ruin' || f.type === 'boat') {
-            const c = project(f.x, f.y, f.z, curCosY, curSinY, curCosP, curSinP);
+            // 遗迹断成两截、竖直跨度极大，用单个中心点判断可见性会整座误剔除
+            // （比如低头俯视时下截落到身后、上截明明还在视野里）。所以遗迹不做预判，
+            // 直接交给 drawFloater 逐面投影 —— 投影失败的面内部自己会丢掉。
+            const c = f.type === 'ruin' ? true
+              : project(f.x, f.y, f.z, curCosY, curSinY, curCosP, curSinP);
             if (c) { ctx.save(); drawFloater(f, curT); ctx.restore(); }
           }
         }
