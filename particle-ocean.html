@@ -3376,37 +3376,43 @@
       function setFpvUi() {
         reticle.style.display = camMode === 'fpv' ? 'block' : 'none';
       }
+      // 进入第一人称。fromUser=false 表示页面刚打开时自动进入，此时有两件事不能做：
+      //   请求锁定鼠标 —— 没有用户手势，浏览器会直接拒绝并往控制台甩一条错误；
+      //   播入水的那一下水花 —— 打开页面本来就没有「入水」这个过程。
+      // 鼠标锁定交给玩家点一下画面（mousedown 里处理），那时才是合法的用户手势。
+      function enterFpv(fromUser) {
+        camMode = 'fpv';
+        camX = 0; camZ = 70;
+        // 直接进入游泳：眼睛落在水面之上，不再从天上自由落体入水
+        camY = waveHeight(camX, camZ, curT) + SWIM_EYE_H;
+        lastFpvX = camX; lastFpvZ = camZ;
+        yawT = yaw; pitchT = pitch;
+        buildFPVParticles(camX, camZ);    // 进入第一人称即构建无限 LOD 海面
+        floaters = [];
+        streamFloaters(camX, camZ);       // 物体+遗迹都随相机半径流式生成，超出半径删除
+        camState = 'swim'; sprint = false; camVy = 0; swimSplash = fromUser;
+        viewBtn.classList.add('active');
+        viewBtn.title = '视角：第一人称（WASD 移动 / 双击 W 疾跑 / 双击 F 生存⇄创造，点击画面锁定鼠标）';
+        setFpvUi();
+        if (fromUser && canvas.requestPointerLock) canvas.requestPointerLock();
+      }
+      function enterOrbit() {
+        if (driving) leaveBoat();         // 切回环绕先下船
+        camMode = 'orbit';
+        camX = camY = camZ = 0;
+        if (document.pointerLockElement === canvas && document.exitPointerLock) document.exitPointerLock();
+        yawT = yaw; pitchT = pitch;
+        buildParticles(GRID, OCEAN);      // 切回环绕恢复有限海面
+        buildFloaters(objTarget);         // 物体回到原点附近的环绕分布
+        ensureRuins(0, 0);                // 遗迹在原点附近补足
+        ensureCollectibles(0, 0);         // 战利品球体也补足
+        camState = 'fly'; sprint = false; curRoll = 0;
+        viewBtn.classList.remove('active');
+        viewBtn.title = '视角：环绕（点击切换第一人称飞行）';
+        setFpvUi();
+      }
       viewBtn.addEventListener('click', () => {
-        if (camMode === 'orbit') {
-          camMode = 'fpv';
-          camX = 0; camZ = 70;
-          // 直接进入游泳：眼睛落在水面之上，不再从天上自由落体入水
-          camY = waveHeight(camX, camZ, curT) + SWIM_EYE_H;
-          lastFpvX = camX; lastFpvZ = camZ;
-          yawT = yaw; pitchT = pitch;
-          buildFPVParticles(camX, camZ);    // 进入第一人称即构建无限 LOD 海面
-          floaters = [];
-          streamFloaters(camX, camZ);       // 物体+遗迹都随相机半径流式生成，超出半径删除
-          camState = 'swim'; sprint = false; camVy = 0; swimSplash = true;
-          viewBtn.classList.add('active');
-          viewBtn.title = '视角：第一人称（WASD 移动 / 双击 W 疾跑 / 双击 F 生存⇄创造，点击画面锁定鼠标）';
-          setFpvUi();
-          if (canvas.requestPointerLock) canvas.requestPointerLock();
-        } else {
-          if (driving) leaveBoat();         // 切回环绕先下船
-          camMode = 'orbit';
-          camX = camY = camZ = 0;
-          if (document.pointerLockElement === canvas && document.exitPointerLock) document.exitPointerLock();
-          yawT = yaw; pitchT = pitch;
-          buildParticles(GRID, OCEAN);      // 切回环绕恢复有限海面
-          buildFloaters(objTarget);         // 物体回到原点附近的环绕分布
-          ensureRuins(0, 0);                // 遗迹在原点附近补足
-          ensureCollectibles(0, 0);         // 战利品球体也补足
-          camState = 'fly'; sprint = false; curRoll = 0;
-          viewBtn.classList.remove('active');
-          viewBtn.title = '视角：环绕（点击切换第一人称飞行）';
-          setFpvUi();
-        }
+        if (camMode === 'orbit') enterFpv(true); else enterOrbit();
       });
 
       // ---------- 全屏 ----------
@@ -3429,7 +3435,8 @@
       document.addEventListener('fullscreenchange', syncFullBtn);
       document.addEventListener('webkitfullscreenchange', syncFullBtn);
 
-      // 启动
+      // 启动：默认一打开就是第一人称
+      enterFpv(false);
       requestAnimationFrame(frame);
       const loading = document.getElementById('loading');
       loading.style.opacity = '0';
